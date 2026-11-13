@@ -433,8 +433,20 @@ final class ControllerVM: ObservableObject {
         return pid
     }
 
+    /// 找到与本 App 同路径、正在运行、但不由当前实例管理的 mage-helper。
+    /// 用于在开启拦截时安全接管已在运行的 helper，而不是另起一个去抢占设备。
+    private func adoptableHelperPID() -> pid_t? {
+        guard let executableURL = helperURL else { return nil }
+        if let pid = controlledHelperPID() { return pid }
+        guard let text = try? String(contentsOf: Self.helperPIDURL, encoding: .utf8),
+              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              HelperProcessInspector.matches(pid: pid, executableURL: executableURL)
+        else { return nil }
+        return pid
+    }
+
     private func refreshHelperState() {
-        helperRunning = controlledHelperPID() != nil
+        helperRunning = adoptableHelperPID() != nil
         refreshHelperStatus()
         if helperEnabled && !helperRunning && !helperTransitioning && helperStatusMessage == nil {
             helperStatusMessage = "按键拦截未运行，请重试"
@@ -524,6 +536,18 @@ final class ControllerVM: ObservableObject {
     private func startHelper(persistPreference: Bool) {
         guard let executableURL = helperURL, let options = helperOptions else {
             helperStatusMessage = "按键拦截启动失败：无法解析 helper 路径"
+            finishHelperTransition()
+            return
+        }
+        // 已有同路径 helper 在跑（可能是本 App 之前拉起、或上次会话遗留）：
+        // 直接接管，不再另起一个去抢占设备，避免 seize 失败导致的反复离线。
+        if adoptableHelperPID() != nil {
+            if persistPreference && !setHelperEnabled(true) {
+                helperStatusMessage = bindingStatusMessage ?? "配置未保存，按键拦截状态未更新"
+            } else {
+                helperStatusMessage = nil
+            }
+            helperRunning = true
             finishHelperTransition()
             return
         }
