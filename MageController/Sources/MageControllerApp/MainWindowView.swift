@@ -105,6 +105,7 @@ struct MainWindowView: View {
                     rightPanel
                         .frame(width: 380)
                 }
+                .frame(height: 516)
                 .padding(.horizontal, 32)
                 .padding(.top, 16)
 
@@ -134,14 +135,12 @@ struct MainWindowView: View {
     private var statusCapsule: some View {
         HStack(spacing: 10) {
             Circle()
-                .fill(vm.connected ? Color(hex: 0x34C759) : Color.primary.opacity(0.25))
+                .fill(statusColor)
                 .frame(width: 10, height: 10)
-            Text(vm.connected ? "MAGE 雪漫天 · 已连接" : "未连接 · 等待设备")
+            Text(statusTitle)
                 .font(.system(size: 13))
             Spacer()
-            Text(vm.connected
-                 ? "\(formatRate(vm.sampleRate)) · \(vm.surround71 ? "游戏模式" : "HiFi 模式")"
-                 : "—")
+            Text(statusDetail)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }
@@ -152,47 +151,62 @@ struct MainWindowView: View {
         .overlay { Capsule().stroke(strokeColor(strong: false), lineWidth: 1) }
     }
 
+    private var statusTitle: String {
+        if vm.helperRunning && !vm.connected { return "按键拦截运行中 · 设备控制暂不可用" }
+        return vm.connected ? "MAGE 雪漫天 · 已连接" : "未连接 · 等待设备"
+    }
+
+    private var statusDetail: String {
+        vm.connected
+            ? "\(formatRate(vm.sampleRate)) · \(vm.surround71 ? "游戏模式" : "HiFi 模式")"
+            : "—"
+    }
+
+    private var statusColor: Color {
+        if vm.connected { return Color(hex: 0x34C759) }
+        if vm.helperRunning { return .orange }
+        return Color.primary.opacity(0.25)
+    }
+
     // MARK: 左栏：设备状态
 
     private var leftPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("设备状态 DEVICE")
-                .font(.system(size: 10))
-                .tracking(2)
-                .foregroundStyle(.secondary)
+            Text("设备状态")
+                .font(.system(size: 12, weight: .semibold))
+                .frame(height: 16)
 
             DeviceLineArt(
                 musicOn: vm.ledOn && !vm.surround71,
                 gameOn: vm.ledOn && vm.surround71,
                 s71On: vm.ledOn && vm.surround71,
-                micOn: vm.micOn
+                micOn: vm.ledOn && vm.micOn
             )
             .frame(width: 231, height: 126)
             .frame(maxWidth: .infinity)
-            .padding(.top, 14)
+            .padding(.top, 12)
 
             // 灯位图例
             HStack(spacing: 14) {
                 legendDot(on: vm.ledOn && !vm.surround71, "音乐")
                 legendDot(on: vm.ledOn && vm.surround71, "游戏")
                 legendDot(on: vm.ledOn && vm.surround71, "7.1")
-                legendDot(on: vm.micOn, "麦克风")
+                legendDot(on: vm.ledOn && vm.micOn, "麦克风")
             }
             .frame(maxWidth: .infinity)
-            .padding(.top, 12)
+            .padding(.top, 8)
 
             // 模式胶囊（状态展示）
             HStack(spacing: 12) {
                 modePill("HiFi 音乐", active: !vm.surround71)
                 modePill("游戏模式", active: vm.surround71)
             }
-            .padding(.top, 18)
+            .padding(.top, 14)
 
-            Text("SAMPLE RATE")
-                .font(.system(size: 8))
-                .tracking(2)
+            Text("采样率")
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.secondary)
-                .padding(.top, 16)
+                .padding(.top, 12)
 
             HStack(spacing: 8) {
                 ForEach(rateChoices, id: \.self) { rate in
@@ -204,7 +218,7 @@ struct MainWindowView: View {
             Text("麦克风键：按一下静音，再按恢复")
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
-                .padding(.top, 12)
+                .padding(.top, 10)
 
             Toggle("按后自动恢复麦克风", isOn: $config.micAutoUnmute)
                 .toggleStyle(.switch)
@@ -213,7 +227,28 @@ struct MainWindowView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .onChange(of: config.micAutoUnmute) { _ in vm.saveConfig(config) }
+                .padding(.top, 6)
+
+            Spacer(minLength: 8)
+
+            Divider()
                 .padding(.top, 8)
+
+            Toggle(isOn: Binding(get: { vm.ledOn }, set: { _ in vm.toggleLED() })) {
+                Label("指示灯", systemImage: vm.ledOn ? "lightbulb.max.fill" : "lightbulb.slash")
+                    .font(.system(size: 12))
+                    .foregroundStyle(vm.ledOn ? Color.primary : Color.secondary)
+            }
+            .toggleStyle(.switch)
+            .tint(.green)
+            .frame(height: 44)
+            .disabled(!vm.connected)
+
+            Text(deviceControlMessage)
+                .font(.system(size: 10))
+                .foregroundStyle(.orange)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28, alignment: .topLeading)
         }
         .padding(20)
         .background {
@@ -224,6 +259,12 @@ struct MainWindowView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(strokeColor(strong: false), lineWidth: 1)
         }
+    }
+
+    private var deviceControlMessage: String {
+        if vm.helperRunning && !vm.connected { return "按键拦截期间，设备控制暂不可用" }
+        if vm.statusMessage.hasPrefix("命令失败") { return vm.statusMessage }
+        return ""
     }
 
     private var rateChoices: [Double] {
@@ -283,101 +324,140 @@ struct MainWindowView: View {
 
     private var rightPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("按键映射 KEY BINDINGS")
-                .font(.system(size: 10))
-                .tracking(2)
-                .foregroundStyle(.secondary)
+            Text("按键映射")
+                .font(.system(size: 12, weight: .semibold))
+                .frame(height: 16)
 
-            // 按键分组：左/右（独立键码）+ 上/下/Menu（同码）+ 麦克风
-            VStack(spacing: 0) {
-                ForEach(Array(RowID.allCases.enumerated()), id: \.element) { index, row in
-                    if index > 0 {
-                        Rectangle()
-                            .fill(Color.primary.opacity(0.1))
-                            .frame(height: 1)
-                            .padding(.horizontal, 16)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        // 左/右键独立；上/下/菜单键共用同一物理键码。
+                        ForEach(Array(RowID.allCases.enumerated()), id: \.element) { index, row in
+                            if index > 0 {
+                                Rectangle()
+                                    .fill(Color.primary.opacity(0.1))
+                                    .frame(height: 1)
+                            }
+                            bindingRow(row)
+                                .frame(height: 52)
+                        }
+
+                        if let row = shellRow {
+                            shellEditor(row)
+                                .id("shell-editor")
+                                .padding(.top, 8)
+                        }
+
+                        Text("点击快捷键可重新录入")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 12)
+                        Text("上、下、菜单键共用绑定，修改同步生效")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 3)
                     }
-                    bindingRow(row)
-                        .frame(height: 64)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            }
-            .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(.regularMaterial)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(strokeColor(strong: false), lineWidth: 1)
-            }
-            .padding(.top, 8)
-
-            // shell 命令编辑（次级入口，右键「运行命令…」后出现）
-            if let row = shellRow {
-                HStack(spacing: 8) {
-                    Text("命令")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                    TextField("shell 命令，如 open -a Typeless", text: $shellDraft) {
-                        apply(.shell(shellDraft), to: row)
-                        shellRow = nil
-                    }
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 8)
-                    .frame(height: 24)
-                    .background {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color.primary.opacity(0.06))
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .stroke(strokeColor(strong: false), lineWidth: 1)
+                .onChange(of: shellRow) { _, row in
+                    guard row != nil else { return }
+                    DispatchQueue.main.async {
+                        proxy.scrollTo("shell-editor", anchor: .bottom)
                     }
                 }
-                .padding(.top, 8)
-            }
-
-            Text("点击胶囊即可录入新快捷键")
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
-                .padding(.top, 12)
-            Text("上 / 下 / Menu 三键同码 · 绑定同步生效")
-                .font(.system(size: 9))
-                .foregroundStyle(.tertiary)
-                .padding(.top, 3)
-
-            // 指示灯开关
-            HStack(spacing: 10) {
-                RecordingDot(color: Color(hex: 0xFFD60A), size: 10, pulsing: false)
-                Text("指示灯")
-                    .font(.system(size: 12))
-                Spacer()
-                Toggle("", isOn: Binding(get: { vm.ledOn }, set: { _ in vm.toggleLED() }))
-                    .toggleStyle(.switch)
-                    .tint(.green)
-                    .labelsHidden()
-            }
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 20)
-            .frame(height: 44)
-            .background {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(.regularMaterial)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .stroke(strokeColor(strong: false), lineWidth: 1)
             }
             .padding(.top, 12)
-            .disabled(!vm.connected)
+
+            Divider()
+                .padding(.top, 8)
+
+            Toggle(isOn: Binding(get: { vm.helperRunning }, set: { _ in vm.toggleHelper() })) {
+                Label("按键拦截", systemImage: "keyboard.badge.ellipsis")
+                    .font(.system(size: 12))
+            }
+            .toggleStyle(.switch)
+            .tint(.green)
+            .frame(height: 44)
+
+            Text(helperStatusText)
+                .font(.system(size: 10))
+                .foregroundStyle(helperStatusColor)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28, alignment: .topLeading)
         }
+        .padding(20)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.regularMaterial)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(strokeColor(strong: false), lineWidth: 1)
+        }
+    }
+
+    private func shellEditor(_ row: RowID) -> some View {
+        HStack(spacing: 6) {
+            TextField("输入要运行的命令", text: $shellDraft) {
+                apply(.shell(shellDraft), to: row)
+                shellRow = nil
+            }
+            .textFieldStyle(.plain)
+            .font(.system(size: 11))
+            .padding(.horizontal, 8)
+            .frame(height: 28)
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(0.06))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(strokeColor(strong: false), lineWidth: 1)
+            }
+
+            Button {
+                apply(.shell(shellDraft), to: row)
+                shellRow = nil
+            } label: {
+                Image(systemName: "checkmark")
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .help("保存命令")
+
+            Button {
+                shellRow = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .help("取消")
+        }
+    }
+
+    private var helperStatusText: String {
+        if vm.helperRunning { return "运行中，设备按键已接管" }
+        if helperFailureVisible { return vm.statusMessage }
+        if vm.helperEnabled { return "按键拦截未运行，请重试" }
+        return "未开启"
+    }
+
+    private var helperStatusColor: Color {
+        if helperFailureVisible || (vm.helperEnabled && !vm.helperRunning) { return .orange }
+        return vm.helperRunning ? Color(hex: 0x34C759) : .secondary
+    }
+
+    private var helperFailureVisible: Bool {
+        let message = vm.statusMessage
+        return message.contains("按键拦截")
+            || message.contains("守护进程")
+            || message.contains("配置")
     }
 
     private func bindingRow(_ row: RowID) -> some View {
         HStack(spacing: 12) {
             keycap(row)
-                .padding(.leading, 16)
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.title)
                     .font(.system(size: 13))
@@ -388,7 +468,6 @@ struct MainWindowView: View {
             }
             Spacer()
             pill(row)
-                .padding(.trailing, 16)
         }
         .contentShape(Rectangle())
     }
@@ -435,7 +514,7 @@ struct MainWindowView: View {
                     .lineLimit(1)
             }
             .padding(.horizontal, 14)
-            .frame(minWidth: 140, maxWidth: 200, minHeight: 26, maxHeight: 26)
+            .frame(width: 160, height: 26)
             .background {
                 Capsule().fill(Color.primary.opacity(recording ? 0.05 : 0.08))
             }
@@ -502,8 +581,8 @@ struct MainWindowView: View {
         "command": "⌘", "option": "⌥", "control": "⌃", "shift": "⇧",
     ]
     private static let keySymbols: [String: String] = [
-        "return": "⏎", "space": "Space", "tab": "Tab",
-        "escape": "Esc", "backspace": "Delete",
+        "return": "⏎", "space": "空格", "tab": "制表",
+        "escape": "退出", "backspace": "删除",
     ]
 
     /// 玻璃描边：深色模式亮一点，浅色模式暗一点
@@ -521,7 +600,7 @@ private extension MainWindowView.RowID {
         case .right: return "右键"
         case .up: return "上键"
         case .down: return "下键"
-        case .menu: return "Menu 键"
+        case .menu: return "菜单键"
         case .mic: return "麦克风键"
         }
     }
@@ -529,9 +608,9 @@ private extension MainWindowView.RowID {
         switch self {
         case .left: return "默认 音量 −"
         case .right: return "默认 音量 +"
-        case .up: return "与 Menu 同码"
-        case .down: return "与 Menu 同码"
-        case .menu: return "与上 / 下键同码"
+        case .up: return "与菜单键同步"
+        case .down: return "与菜单键同步"
+        case .menu: return "与上、下键同步"
         case .mic: return "语音输入键"
         }
     }

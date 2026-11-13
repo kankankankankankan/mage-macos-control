@@ -360,19 +360,6 @@ struct MenuContent: View {
                 menuRow("打开主界面", icon: "macwindow") {
                     NotificationCenter.default.post(name: .openKeysWindow, object: nil)
                 }
-                menuToggle("按键拦截", icon: "keyboard.badge.ellipsis",
-                           isOn: vm.helperRunning, enabled: true) { vm.toggleHelper() }
-                if vm.helperEnabled && !vm.helperRunning {
-                    HStack(spacing: 5) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 9))
-                        Text("守护进程未运行，点击上方开关重新启动")
-                            .font(.system(size: 9))
-                    }
-                    .foregroundStyle(.orange)
-                    .padding(.leading, 24)
-                    .padding(.top, 2)
-                }
                 menuRow("退出 MAGE Controller", icon: "power") {
                     NSApplication.shared.terminate(nil)
                 }
