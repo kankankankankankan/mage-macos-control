@@ -175,13 +175,13 @@ final class MageKitTests: XCTestCase {
             uid: getuid()
         ))
         XCTAssertTrue(
-            HelperProcessInspector.identities(named: identity.executableURL.lastPathComponent)
+            try HelperProcessInspector.identities(named: identity.executableURL.lastPathComponent)
                 .contains(where: { $0.pid == pid })
         )
     }
 
     func testProcessInspectorFindsAnExecutableAtALaterPIDIndex() throws {
-        let pids = HelperProcessInspector.allProcessIDs()
+        let pids = try HelperProcessInspector.allProcessIDs()
         XCTAssertGreaterThan(pids.count, 120)
 
         var candidate: (index: Int, identity: HelperProcessIdentity)?
@@ -194,10 +194,49 @@ final class MageKitTests: XCTestCase {
         let selected = try XCTUnwrap(candidate)
         XCTAssertGreaterThanOrEqual(selected.index, 100)
 
-        let identities = HelperProcessInspector.identities(
+        let identities = try HelperProcessInspector.identities(
             named: selected.identity.executableURL.lastPathComponent
         )
         XCTAssertTrue(identities.contains(where: { $0.pid == selected.identity.pid }))
+    }
+
+    func testProcessInspectorRetriesWhenPIDBufferIsExactlyFull() throws {
+        var bufferCalls = 0
+        let expected: [pid_t] = [41, 42, 43]
+
+        let pids = try HelperProcessInspector.allProcessIDs { buffer, byteCount in
+            guard let buffer else { return 1 }
+            bufferCalls += 1
+            let capacity = Int(byteCount) / MemoryLayout<pid_t>.stride
+            let storage = buffer.bindMemory(to: pid_t.self, capacity: capacity)
+
+            if bufferCalls == 1 {
+                for index in 0..<capacity { storage[index] = pid_t(index + 1) }
+                return Int32(capacity)
+            }
+            for (index, pid) in expected.enumerated() { storage[index] = pid }
+            return Int32(expected.count)
+        }
+
+        XCTAssertEqual(pids, expected)
+        XCTAssertEqual(bufferCalls, 2)
+    }
+
+    func testProcessInspectorRejectsPersistentlyFullPIDBuffers() {
+        XCTAssertThrowsError(try HelperProcessInspector.allProcessIDs(
+            maxAttempts: 3
+        ) { buffer, byteCount in
+            guard let buffer else { return 1 }
+            let capacity = Int(byteCount) / MemoryLayout<pid_t>.stride
+            let storage = buffer.bindMemory(to: pid_t.self, capacity: capacity)
+            for index in 0..<capacity { storage[index] = pid_t(index + 1) }
+            return Int32(capacity)
+        }) { error in
+            XCTAssertEqual(
+                error as? HelperProcessInspector.EnumerationError,
+                .processListKeptGrowing
+            )
+        }
     }
 
     func testConfigStoreReportsAtomicWriteFailure() throws {
@@ -219,6 +258,27 @@ final class MageKitTests: XCTestCase {
         let succeeded = HelperStopPreferenceOutcome(persistenceSucceeded: true)
         XCTAssertFalse(succeeded.helperEnabled)
         XCTAssertNil(succeeded.message)
+    }
+
+    func testHelperStatusPresentationUsesTheRelevantFailurePriority() {
+        let bindingFailure = "配置未保存：测试写入失败"
+        let stopFailure = HelperStopPreferenceOutcome.persistenceFailureMessage
+
+        XCTAssertEqual(HelperStatusPresentation.text(
+            bindingMessage: bindingFailure,
+            helperMessage: stopFailure,
+            transitioning: false,
+            running: false,
+            enabled: true
+        ), stopFailure)
+
+        XCTAssertEqual(HelperStatusPresentation.text(
+            bindingMessage: bindingFailure,
+            helperMessage: "按键拦截未运行，请重试",
+            transitioning: false,
+            running: false,
+            enabled: true
+        ), bindingFailure)
     }
 
     func testInterceptorReportsUnsupportedPlaybackFailure() {

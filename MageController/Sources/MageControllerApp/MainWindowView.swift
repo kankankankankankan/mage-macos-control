@@ -446,12 +446,13 @@ struct MainWindowView: View {
     }
 
     private var helperStatusText: String {
-        if let message = vm.bindingStatusMessage { return message }
-        if let message = vm.helperStatusMessage { return message }
-        if vm.helperTransitioning { return "正在更新按键拦截状态…" }
-        if vm.helperRunning { return "运行中，设备按键已接管" }
-        if vm.helperEnabled { return "按键拦截未运行，请重试" }
-        return "未开启"
+        HelperStatusPresentation.text(
+            bindingMessage: vm.bindingStatusMessage,
+            helperMessage: vm.helperStatusMessage,
+            transitioning: vm.helperTransitioning,
+            running: vm.helperRunning,
+            enabled: vm.helperEnabled
+        )
     }
 
     private var helperStatusColor: Color {

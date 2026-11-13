@@ -25,6 +25,9 @@ public struct KeyConfigStore {
 }
 
 public struct HelperStopPreferenceOutcome: Equatable {
+    public static let persistenceFailureMessage =
+        "按键拦截已停止，但关闭偏好未写入；下次启动将按磁盘中的旧偏好处理"
+
     public let helperEnabled: Bool
     public let message: String?
 
@@ -34,8 +37,28 @@ public struct HelperStopPreferenceOutcome: Equatable {
             message = nil
         } else {
             helperEnabled = true
-            message = "按键拦截已停止，但关闭偏好未写入；下次启动将按磁盘中的旧偏好处理"
+            message = Self.persistenceFailureMessage
         }
+    }
+}
+
+public enum HelperStatusPresentation {
+    public static func text(
+        bindingMessage: String?,
+        helperMessage: String?,
+        transitioning: Bool,
+        running: Bool,
+        enabled: Bool
+    ) -> String {
+        if helperMessage == HelperStopPreferenceOutcome.persistenceFailureMessage {
+            return HelperStopPreferenceOutcome.persistenceFailureMessage
+        }
+        if let bindingMessage { return bindingMessage }
+        if let helperMessage { return helperMessage }
+        if transitioning { return "正在更新按键拦截状态…" }
+        if running { return "运行中，设备按键已接管" }
+        if enabled { return "按键拦截未运行，请重试" }
+        return "未开启"
     }
 }
 
@@ -136,6 +159,25 @@ public struct HelperProcessIdentity: Equatable {
 }
 
 public enum HelperProcessInspector {
+    public enum EnumerationError: Error, Equatable, LocalizedError {
+        case queryFailed
+        case processListKeptGrowing
+        case bufferTooLarge
+
+        public var errorDescription: String? {
+            switch self {
+            case .queryFailed:
+                return "无法读取系统进程列表"
+            case .processListKeptGrowing:
+                return "系统进程列表持续变化，无法确认枚举完整"
+            case .bufferTooLarge:
+                return "系统进程列表超过可检查范围"
+            }
+        }
+    }
+
+    typealias ProcessListProvider = (UnsafeMutableRawPointer?, Int32) -> Int32
+
     public static func identity(for pid: pid_t) -> HelperProcessIdentity? {
         guard pid > 0 else { return nil }
 
@@ -159,26 +201,45 @@ public enum HelperProcessInspector {
         )
     }
 
-    public static func identities(named executableName: String) -> [HelperProcessIdentity] {
-        return allProcessIDs()
+    public static func identities(named executableName: String) throws -> [HelperProcessIdentity] {
+        return try allProcessIDs()
             .compactMap(identity(for:))
             .filter { $0.executableURL.lastPathComponent == executableName }
     }
 
-    public static func allProcessIDs() -> [pid_t] {
-        var capacity = max(Int(proc_listallpids(nil, 0)), 1)
-        for _ in 0..<3 {
+    public static func allProcessIDs() throws -> [pid_t] {
+        try allProcessIDs { buffer, byteCount in
+            proc_listallpids(buffer, byteCount)
+        }
+    }
+
+    static func allProcessIDs(
+        maxAttempts: Int = 3,
+        listAllPIDs: ProcessListProvider
+    ) throws -> [pid_t] {
+        let initialCount = listAllPIDs(nil, 0)
+        guard initialCount > 0 else { throw EnumerationError.queryFailed }
+
+        var capacity = Int(initialCount) + 32
+        for _ in 0..<maxAttempts {
+            let (byteCapacity, overflow) = capacity.multipliedReportingOverflow(
+                by: MemoryLayout<pid_t>.stride
+            )
+            guard !overflow, byteCapacity <= Int(Int32.max) else {
+                throw EnumerationError.bufferTooLarge
+            }
+
             var pids = [pid_t](repeating: 0, count: capacity)
             let returnedCount = pids.withUnsafeMutableBytes { buffer in
-                proc_listallpids(buffer.baseAddress, Int32(buffer.count))
+                listAllPIDs(buffer.baseAddress, Int32(buffer.count))
             }
-            guard returnedCount > 0 else { return [] }
-            if returnedCount <= capacity {
+            guard returnedCount > 0 else { throw EnumerationError.queryFailed }
+            if returnedCount < capacity {
                 return Array(pids.prefix(Int(returnedCount)))
             }
-            capacity = Int(returnedCount) + 32
+            capacity = max(capacity, Int(returnedCount)) + max(capacity / 2, 32)
         }
-        return []
+        throw EnumerationError.processListKeptGrowing
     }
 
     public static func matches(

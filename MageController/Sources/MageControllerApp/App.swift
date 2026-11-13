@@ -437,8 +437,13 @@ final class ControllerVM: ObservableObject {
 
     private func unmanagedHelperMessage() -> String? {
         let controlledPID = controlledHelperPID()
-        let conflicts = HelperProcessInspector.identities(named: "mage-helper")
-            .filter { $0.pid != controlledPID }
+        let conflicts: [HelperProcessIdentity]
+        do {
+            conflicts = try HelperProcessInspector.identities(named: "mage-helper")
+                .filter { $0.pid != controlledPID }
+        } catch {
+            return "无法完整检查现有 helper 进程，已取消启动：\(error.localizedDescription)"
+        }
         if let conflict = conflicts.first(where: { $0.uid == 0 }) {
             return "检测到旧版管理员 helper（PID \(conflict.pid)）；请运行 sudo kill \(conflict.pid) 后重试"
         }
