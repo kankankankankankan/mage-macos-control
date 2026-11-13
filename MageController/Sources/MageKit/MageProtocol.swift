@@ -91,7 +91,7 @@ public enum MageProtocol {
     }
 
     /// 从原始 report 中解析出一个完整帧（到第一个 0xEE 为止）。
-    /// 保留序号，供请求-响应通道避免把迟到回包交给下一次请求。
+    /// 保留设备序号用于诊断。设备使用独立的响应计数器，不回显请求序号。
     public static func parseDetailedFrame(_ bytes: [UInt8]) -> Frame? {
         guard let headIndex = bytes.firstIndex(where: { $0 == setHead || $0 == getHead }),
               bytes.count > headIndex + 5 else { return nil }

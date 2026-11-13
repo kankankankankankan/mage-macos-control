@@ -5,6 +5,122 @@ import Darwin
 @testable import MageKit
 
 final class MageKitTests: XCTestCase {
+    func testVendorRunLoopCleanupUsesOwningThreadAndCloseWaits() {
+        let worker = VendorRunLoopWorker()
+        let stateLock = NSLock()
+        var setupThread: ObjectIdentifier?
+        var cleanupThread: ObjectIdentifier?
+        let cleanupStarted = DispatchSemaphore(value: 0)
+        let allowCleanup = DispatchSemaphore(value: 0)
+        let stopReturned = DispatchSemaphore(value: 0)
+
+        worker.start { _ in
+            stateLock.lock()
+            setupThread = ObjectIdentifier(Thread.current)
+            stateLock.unlock()
+        }
+        DispatchQueue.global().async {
+            worker.stopAndWait { _ in
+                stateLock.lock()
+                cleanupThread = ObjectIdentifier(Thread.current)
+                stateLock.unlock()
+                cleanupStarted.signal()
+                allowCleanup.wait()
+            }
+            stopReturned.signal()
+        }
+
+        XCTAssertEqual(cleanupStarted.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(stopReturned.wait(timeout: .now() + 0.05), .timedOut)
+        allowCleanup.signal()
+        XCTAssertEqual(stopReturned.wait(timeout: .now() + 1), .success)
+
+        stateLock.lock()
+        let observedSetupThread = setupThread
+        let observedCleanupThread = cleanupThread
+        stateLock.unlock()
+        XCTAssertEqual(observedCleanupThread, observedSetupThread)
+    }
+
+    func testVendorRunLoopWorkerCanBeRepeatedlyStartedAndClosed() {
+        let lock = NSLock()
+        var cleanupCount = 0
+
+        for _ in 0..<32 {
+            let worker = VendorRunLoopWorker()
+            worker.start { _ in }
+            worker.stopAndWait { _ in
+                lock.lock()
+                cleanupCount += 1
+                lock.unlock()
+            }
+        }
+
+        XCTAssertEqual(cleanupCount, 32)
+    }
+
+    func testLiveVendorTimeoutCanCloseAndReopen() throws {
+        guard ProcessInfo.processInfo.environment["MAGE_LIVE_HID_TEST"] == "1" else {
+            throw XCTSkip("requires an attached SNOWSKY MAGE and explicit opt-in")
+        }
+
+        let channel = VendorChannel()
+        var timeoutCount = 0
+        for _ in 0..<8 {
+            XCTAssertTrue(try channel.open(), "SNOWSKY MAGE was not found")
+            do {
+                _ = try channel.send(cmd: .ledLight, timeout: 0)
+            } catch VendorChannel.Error.timeout {
+                timeoutCount += 1
+            } catch {
+                XCTFail("unexpected live HID error: \(error)")
+            }
+            channel.close()
+        }
+
+        XCTAssertGreaterThan(timeoutCount, 0, "the zero-timeout path was not exercised")
+        XCTAssertFalse(channel.isConnected)
+    }
+
+    func testLiveVendorAcceptsIndependentResponseSequence() throws {
+        guard ProcessInfo.processInfo.environment["MAGE_LIVE_HID_TEST"] == "1" else {
+            throw XCTSkip("requires an attached SNOWSKY MAGE and explicit opt-in")
+        }
+
+        let channel = VendorChannel()
+        XCTAssertTrue(try channel.open(), "SNOWSKY MAGE was not found")
+        let led = try channel.send(cmd: .ledLight)
+        let mic = try channel.send(cmd: .micSwitch)
+        channel.close()
+
+        XCTAssertEqual(led.count, 1)
+        XCTAssertEqual(mic.count, 1)
+        XCTAssertFalse(channel.isConnected)
+    }
+
+    func testLiveUnavailableVendorCanRepeatedlyOpenAndClose() throws {
+        guard ProcessInfo.processInfo.environment["MAGE_LIVE_HID_UNAVAILABLE_TEST"] == "1" else {
+            throw XCTSkip("requires the attached SNOWSKY MAGE to be seized by a separate helper")
+        }
+
+        let channel = VendorChannel()
+        for _ in 0..<8 {
+            let opened: Bool
+            do {
+                opened = try channel.open()
+            } catch VendorChannel.Error.openFailed {
+                // Exclusive access may be reported while opening the manager or the device.
+                opened = false
+            } catch {
+                XCTFail("unexpected unavailable-device error: \(error)")
+                opened = false
+            }
+            XCTAssertFalse(opened, "seized device unexpectedly opened")
+            channel.close()
+            XCTAssertFalse(channel.isConnected)
+        }
+    }
+
     func testProtocolSequenceIsUniqueWhenFramesAreBuiltConcurrently() {
         MageProtocol.resetSeq()
         let count = 512
