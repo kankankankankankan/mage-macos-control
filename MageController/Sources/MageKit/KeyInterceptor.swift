@@ -13,8 +13,12 @@ public enum MageKey: String, Codable, CaseIterable {
 
     public var usage: (page: UInt32, usage: UInt32) {
         switch self {
-        case .volumeUp:   return (0x0C, 0xE9)
-        case .volumeDown: return (0x0C, 0xEA)
+        // This unit reports the physical left/right controls in the opposite
+        // order from the consumer HID names: the left edge emits E9 and the
+        // right edge emits EA. Keep the user-facing left/right bindings tied
+        // to the physical controls.
+        case .volumeUp:   return (0x0C, 0xEA)
+        case .volumeDown: return (0x0C, 0xE9)
         case .playPause:  return (0x0C, 0xCD)
         }
     }
