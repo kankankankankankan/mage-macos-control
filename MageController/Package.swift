@@ -16,5 +16,9 @@ let package = Package(
             dependencies: ["MageKit"],
             path: "Sources/MageControllerApp"
         ),
+        .testTarget(
+            name: "MageKitTests",
+            dependencies: ["MageKit"]
+        ),
     ]
 )

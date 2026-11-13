@@ -69,9 +69,11 @@ public final class VirtualKeyboard {
     /// 在系统中注册虚拟键盘设备
     public func start() throws {
         if device != nil { return }
-        guard let createFn, let reportFn else { throw VKError.apiUnavailable }
+        guard let createFn else { throw VKError.apiUnavailable }
         let props: [String: Any] = [
-            kIOHIDVendorIDKey: 0x2972,
+            // Keep the synthetic keyboard outside MAGE's physical VID. The
+            // interceptor also matches the exact MAGE product name.
+            kIOHIDVendorIDKey: VendorChannel.virtualKeyboardVendorID,
             kIOHIDProductIDKey: 0x4D4B,              // "MK"
             kIOHIDProductKey: "MAGE Virtual Keyboard",
             kIOHIDReportDescriptorKey: Data(Self.descriptor) as CFData,
@@ -95,7 +97,7 @@ public final class VirtualKeyboard {
 
     private func sendReport(modifiers: UInt8, key: UInt8) throws {
         guard let dev = device, let reportFn else { throw VKError.notRunning }
-        var report: [UInt8] = [modifiers, 0, key, 0, 0, 0, 0, 0]
+        let report: [UInt8] = [modifiers, 0, key, 0, 0, 0, 0, 0]
         let r = report.withUnsafeBytes { ptr -> IOReturn in
             guard let base = ptr.baseAddress else { return kIOReturnError }
             return reportFn(dev, base.assumingMemoryBound(to: UInt8.self), report.count)

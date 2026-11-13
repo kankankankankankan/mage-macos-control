@@ -126,21 +126,21 @@ public final class KeyInterceptor {
         micAutoUnmute = config.micAutoUnmute
     }
 
-    /// 启动拦截（seize 设备）。必须在有 root 权限的进程中调用。
+    /// 启动拦截（seize 设备）。
     public func start() -> Bool {
         stop()
         let m = IOHIDManagerCreate(kCFAllocatorDefault,
                                    IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
-        IOHIDManagerSetDeviceMatching(m, [kIOHIDVendorIDKey: VendorChannel.vendorID] as CFDictionary)
+        // Apply the exact product match before Open: the manager must not
+        // seize another HID product that happens to share the vendor ID.
+        IOHIDManagerSetDeviceMatching(m, VendorChannel.deviceMatching as CFDictionary)
         IOHIDManagerScheduleWithRunLoop(m, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
         let r = IOHIDManagerOpen(m, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
         guard r == kIOReturnSuccess else {
             state = .failed("无法独占设备（需要 root）: 0x\(String(r, radix: 16))")
             return false
         }
-        let devices = (IOHIDManagerCopyDevices(m) as? Set<IOHIDDevice> ?? []).filter {
-            (IOHIDDeviceGetProperty($0, kIOHIDProductKey as CFString) as? String) == VendorChannel.productName
-        }
+        let devices = (IOHIDManagerCopyDevices(m) as? Set<IOHIDDevice> ?? [])
         guard !devices.isEmpty else {
             IOHIDManagerClose(m, 0)
             state = .failed("未找到 MAGE 设备")
@@ -270,6 +270,22 @@ public final class KeyInterceptor {
 /// 模拟键盘快捷键：优先走虚拟键盘（硬件级事件，区分左右修饰键、可被 Typeless 直接录制），
 /// 虚拟键盘不可用时退回 CGEvent
 public enum KeystrokeSimulator {
+    public enum PlaybackError: Error, Equatable, LocalizedError {
+        case emptyCombination
+        case unsupportedKey(String)
+        case unsupportedModifier(String)
+        case eventCreationFailed
+
+        public var errorDescription: String? {
+            switch self {
+            case .emptyCombination: return "快捷键不能为空"
+            case .unsupportedKey(let key): return "不支持回放的按键：\(key)"
+            case .unsupportedModifier(let modifier): return "不支持回放的修饰键：\(modifier)"
+            case .eventCreationFailed: return "无法创建键盘事件"
+            }
+        }
+    }
+
     private static let vk = VirtualKeyboard()
     private static var vkReady = false
     private static let vkLock = NSLock()
@@ -285,7 +301,18 @@ public enum KeystrokeSimulator {
         "7": 0x24, "8": 0x25, "9": 0x26, "0": 0x27,
         "return": 0x28, "enter": 0x28, "escape": 0x29, "backspace": 0x2A,
         "tab": 0x2B, "space": 0x2C,
+        "-": 0x2D, "_": 0x2D, "=": 0x2E, "+": 0x2E,
+        "[": 0x2F, "{": 0x2F, "]": 0x30, "}": 0x30,
+        "\\": 0x31, "|": 0x31, "#": 0x32, "~": 0x32,
+        ";": 0x33, ":": 0x33, "'": 0x34, "\"": 0x34,
+        "`": 0x35, ",": 0x36, "<": 0x36, ".": 0x37, ">": 0x37,
+        "/": 0x38, "?": 0x38,
+        "capslock": 0x39, "caps_lock": 0x39,
         "left": 0x50, "right": 0x4F, "up": 0x52, "down": 0x51,
+        "printscreen": 0x46, "print_screen": 0x46, "scrolllock": 0x47,
+        "scroll_lock": 0x47, "pause": 0x48, "insert": 0x49, "home": 0x4A,
+        "pageup": 0x4B, "page_up": 0x4B, "delete": 0x4C, "end": 0x4D,
+        "pagedown": 0x4E, "page_down": 0x4E,
         "f1": 0x3A, "f2": 0x3B, "f3": 0x3C, "f4": 0x3D, "f5": 0x3E, "f6": 0x3F,
         "f7": 0x40, "f8": 0x41, "f9": 0x42, "f10": 0x43, "f11": 0x44, "f12": 0x45,
         "f13": 0x68, "f14": 0x69, "f15": 0x6A, "f16": 0x6B, "f17": 0x6C,
@@ -304,19 +331,75 @@ public enum KeystrokeSimulator {
         "right_option": 0x40, "ropt": 0x40,
         "right_command": 0x80, "rcmd": 0x80,
     ]
+    private static let supportedModifiers = Set([
+        "control", "left_control", "lctl", "shift", "left_shift", "lshift",
+        "option", "left_option", "lopt", "command", "left_command", "lcmd",
+        "right_control", "rctl", "right_shift", "rshift", "right_option", "ropt",
+        "right_command", "rcmd", "fn",
+    ])
 
-    /// key 为空字符串 = 只按修饰键
-    public static func post(key: String, modifiers: [String]) {
+    private static let legacyKeyMap: [String: CGKeyCode] = [
+        "return": 36, "enter": 36, "space": 49, "tab": 48, "escape": 53,
+        "backspace": 51, "delete": 117, "forwarddelete": 117, "capslock": 57,
+        "caps_lock": 57, "insert": 114, "home": 115, "end": 119, "pageup": 116,
+        "page_up": 116, "pagedown": 121, "page_down": 121,
+        "f1": 122, "f2": 120, "f3": 99, "f4": 118, "f5": 96, "f6": 97,
+        "f7": 98, "f8": 100, "f9": 101, "f10": 109, "f11": 103, "f12": 111,
+        "f13": 105, "f14": 107, "f15": 113, "f16": 106, "f17": 64, "f18": 79,
+        "f19": 80, "f20": 90, "left": 123, "right": 124, "up": 126, "down": 125,
+        "a": 0, "b": 11, "c": 8, "d": 2, "e": 14, "f": 3, "g": 5, "h": 4,
+        "i": 34, "j": 38, "k": 40, "l": 37, "m": 46, "n": 45, "o": 31,
+        "p": 35, "q": 12, "r": 15, "s": 1, "t": 17, "u": 32, "v": 9,
+        "w": 13, "x": 7, "y": 16, "z": 6,
+        "1": 18, "2": 19, "3": 20, "4": 21, "5": 23, "6": 22,
+        "7": 26, "8": 28, "9": 25, "0": 29,
+        "-": 27, "_": 27, "=": 24, "+": 24, "[": 33, "{": 33, "]": 30, "}": 30,
+        "\\": 42, "|": 42, ";": 41, ":": 41, "'": 39, "\"": 39, "`": 50, "~": 50,
+        ",": 43, "<": 43, ".": 47, ">": 47, "/": 44, "?": 44,
+    ]
+
+    public static func validate(key: String, modifiers: [String]) throws {
         let k = key.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !k.isEmpty || !modifiers.isEmpty else {
+            throw PlaybackError.emptyCombination
+        }
+        guard k.isEmpty || keyUsage[k] != nil || legacyKeyMap[k] != nil else {
+            throw PlaybackError.unsupportedKey(k)
+        }
+        for modifier in modifiers {
+            let normalized = modifier.trimmingCharacters(in: .whitespaces).lowercased()
+            guard supportedModifiers.contains(normalized) else {
+                throw PlaybackError.unsupportedModifier(normalized)
+            }
+        }
+    }
+
+    public static func isSupported(key: String, modifiers: [String]) -> Bool {
+        (try? validate(key: key, modifiers: modifiers)) != nil
+    }
+
+    /// key 为空字符串 = 只按修饰键。返回失败而不是静默丢弃不支持的录制结果。
+    @discardableResult
+    public static func post(key: String, modifiers: [String]) -> Result<Void, PlaybackError> {
+        do {
+            try validate(key: key, modifiers: modifiers)
+        } catch let error as PlaybackError {
+            return .failure(error)
+        } catch {
+            return .failure(.eventCreationFailed)
+        }
+
+        let k = key.trimmingCharacters(in: .whitespaces).lowercased()
+        let normalizedModifiers = modifiers.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
         var mods: UInt8 = 0
-        for m in modifiers {
-            if let b = modBits[m.trimmingCharacters(in: .whitespaces).lowercased()] { mods |= b }
+        for m in normalizedModifiers {
+            if let b = modBits[m] { mods |= b }
         }
         let usage = k.isEmpty ? UInt8(0) : (keyUsage[k] ?? 0)
 
-        if !k.isEmpty && usage == 0 {
-            legacyPost(key: k, modifiers: modifiers)  // 未知键退回 CGEvent
-            return
+        // Fn has no USB modifier bit; preserve it through the CGEvent route.
+        if normalizedModifiers.contains("fn") {
+            return legacyPost(key: k, modifiers: normalizedModifiers)
         }
 
         vkLock.lock()
@@ -330,25 +413,13 @@ public enum KeystrokeSimulator {
             } else {
                 vk.tap(key: usage, modifiers: mods)
             }
+            return .success(())
         } else {
-            legacyPost(key: k, modifiers: modifiers)
+            return legacyPost(key: k, modifiers: normalizedModifiers)
         }
     }
 
     // MARK: - CGEvent 退路（无左右侧信息）
-
-    private static let legacyKeyMap: [String: CGKeyCode] = [
-        "return": 36, "enter": 36, "space": 49, "tab": 48, "escape": 53,
-        "backspace": 51,
-        "f1": 122, "f2": 120, "f3": 99, "f4": 118, "f5": 96, "f6": 97,
-        "f7": 98, "f8": 100, "f9": 101, "f10": 109, "f11": 103, "f12": 111,
-        "f13": 105, "f14": 107, "f15": 113,
-        "left": 123, "right": 124, "up": 126, "down": 125,
-        "a": 0, "b": 11, "c": 8, "d": 2, "e": 14, "m": 46, "n": 45,
-        "p": 35, "q": 12, "s": 1, "v": 9, "x": 7, "z": 6,
-        "1": 18, "2": 19, "3": 20, "4": 21, "5": 23, "6": 22,
-        "7": 26, "8": 28, "9": 25, "0": 29,
-    ]
     private static let legacyModMap: [String: CGEventFlags] = [
         "shift": .maskShift, "command": .maskCommand, "option": .maskAlternate,
         "control": .maskControl, "fn": .maskSecondaryFn,
@@ -358,33 +429,34 @@ public enum KeystrokeSimulator {
         "right_option": .maskAlternate, "right_control": .maskControl,
     ]
 
-    private static func legacyPost(key: String, modifiers: [String]) {
+    private static func legacyPost(key: String, modifiers: [String]) -> Result<Void, PlaybackError> {
         var flags: CGEventFlags = []
         for m in modifiers {
             if let f = legacyModMap[m.trimmingCharacters(in: .whitespaces).lowercased()] { flags.insert(f) }
         }
         if key.isEmpty {
             // 纯修饰键：flagsChanged
-            if let down = CGEvent(source: nil) {
-                down.type = .flagsChanged
-                down.flags = flags
-                down.post(tap: .cghidEventTap)
+            guard let down = CGEvent(source: nil), let up = CGEvent(source: nil) else {
+                return .failure(.eventCreationFailed)
             }
+            down.type = .flagsChanged
+            down.flags = flags
+            down.post(tap: .cghidEventTap)
             usleep(60000)
-            if let up = CGEvent(source: nil) {
-                up.type = .flagsChanged
-                up.flags = []
-                up.post(tap: .cghidEventTap)
-            }
-            return
+            up.type = .flagsChanged
+            up.flags = []
+            up.post(tap: .cghidEventTap)
+            return .success(())
         }
-        guard let code = legacyKeyMap[key] else { return }
+        guard let code = legacyKeyMap[key] else { return .failure(.unsupportedKey(key)) }
         let src = CGEventSource(stateID: .hidSystemState)
         let down = CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: true)
         let up = CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: false)
-        down?.flags = flags; up?.flags = flags
-        down?.post(tap: .cghidEventTap)
+        guard let down, let up else { return .failure(.eventCreationFailed) }
+        down.flags = flags; up.flags = flags
+        down.post(tap: .cghidEventTap)
         usleep(20000)
-        up?.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
+        return .success(())
     }
 }

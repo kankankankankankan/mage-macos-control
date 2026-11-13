@@ -60,12 +60,29 @@ public enum MageProtocol {
         return t
     }
 
-    private static var seq: Int = 0
-    public static func resetSeq() { seq = 0 }
+    public struct Frame: Equatable {
+        public let head: UInt8
+        public let start: UInt8
+        public let sequence: UInt16
+        public let cmd: UInt8
+        public let payload: [UInt8]
+    }
+
+    private static var seq: UInt16 = 0
+    private static let seqLock = NSLock()
+
+    public static func resetSeq() {
+        seqLock.lock()
+        seq = 0
+        seqLock.unlock()
+    }
 
     public static func makeFrame(head: UInt8, start: UInt8, cmd: UInt8,
                                  payload: [UInt8]) -> [UInt8] {
-        let s = seq; seq &+= 1
+        seqLock.lock()
+        let s = seq
+        seq &+= 1
+        seqLock.unlock()
         var body = [head, start, UInt8((s >> 8) & 255), UInt8(s & 255),
                     cmd, UInt8(payload.count)] + payload
         body.append(crc8(body))
@@ -73,13 +90,29 @@ public enum MageProtocol {
         return body
     }
 
-    /// 从原始 report 中解析出一个完整帧（到第一个 0xEE 为止）
-    public static func parseFrame(_ bytes: [UInt8]) -> (cmd: UInt8, payload: [UInt8])? {
+    /// 从原始 report 中解析出一个完整帧（到第一个 0xEE 为止）。
+    /// 保留序号，供请求-响应通道避免把迟到回包交给下一次请求。
+    public static func parseDetailedFrame(_ bytes: [UInt8]) -> Frame? {
         guard let headIndex = bytes.firstIndex(where: { $0 == setHead || $0 == getHead }),
               bytes.count > headIndex + 5 else { return nil }
         let len = Int(bytes[headIndex + 5])
         let end = headIndex + 6 + len + 1 // data + crc + ee
         guard bytes.count > end, bytes[end] == stop else { return nil }
-        return (bytes[headIndex + 4], Array(bytes[(headIndex + 6)...(headIndex + 5 + len)]))
+        let bodyEnd = headIndex + 5 + len
+        let body = Array(bytes[headIndex...bodyEnd])
+        guard bytes[headIndex + 6 + len] == crc8(body) else { return nil }
+        return Frame(
+            head: bytes[headIndex],
+            start: bytes[headIndex + 1],
+            sequence: UInt16(bytes[headIndex + 2]) << 8 | UInt16(bytes[headIndex + 3]),
+            cmd: bytes[headIndex + 4],
+            payload: Array(bytes[(headIndex + 6)...bodyEnd])
+        )
+    }
+
+    /// 从原始 report 中解析出命令和 payload。
+    public static func parseFrame(_ bytes: [UInt8]) -> (cmd: UInt8, payload: [UInt8])? {
+        guard let frame = parseDetailedFrame(bytes) else { return nil }
+        return (frame.cmd, frame.payload)
     }
 }
