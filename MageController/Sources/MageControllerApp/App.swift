@@ -53,6 +53,9 @@ final class ControllerVM: ObservableObject {
         .appendingPathComponent("mage-helper-status.json")
     private static let helperLogURL = homeURL
         .appendingPathComponent("Library/Logs/MAGE Controller/mage-helper.log")
+    private var configStore: KeyConfigStore {
+        KeyConfigStore(url: Self.configURL)
+    }
 
     init() {
         helperEnabled = loadConfig().helperEnabled
@@ -94,12 +97,7 @@ final class ControllerVM: ObservableObject {
         }
         do {
             try validateConfig(cfg)
-            let data = try JSONEncoder().encode(cfg)
-            try FileManager.default.createDirectory(
-                at: Self.configURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try data.write(to: Self.configURL, options: .atomic)
+            try configStore.save(cfg)
             bindingStatusMessage = nil
             return true
         } catch {
@@ -160,8 +158,7 @@ final class ControllerVM: ObservableObject {
             return KeyConfig()
         }
         do {
-            let data = try Data(contentsOf: Self.configURL)
-            let cfg = try JSONDecoder().decode(KeyConfig.self, from: data)
+            let cfg = try configStore.load()
             configReadFailed = false
             return cfg
         } catch {
@@ -455,8 +452,11 @@ final class ControllerVM: ObservableObject {
         guard let executableURL = helperURL, let pid = controlledHelperPID() else {
             helperRunning = false
             helperTransitioning = false
-            if persistPreference { _ = setHelperEnabled(false) }
-            helperStatusMessage = nil
+            if persistPreference {
+                applyStopPreference()
+            } else {
+                helperStatusMessage = nil
+            }
             return
         }
         guard HelperProcessInspector.matches(pid: pid, executableURL: executableURL) else {
@@ -489,8 +489,8 @@ final class ControllerVM: ObservableObject {
             self.helperRunning = false
             self.helperTransitioning = false
             self.helperStopRequested = false
-            if persistPreference && !self.setHelperEnabled(false) {
-                self.helperStatusMessage = self.bindingStatusMessage ?? "配置未保存"
+            if persistPreference {
+                self.applyStopPreference()
             } else {
                 self.helperStatusMessage = nil
             }
@@ -507,6 +507,14 @@ final class ControllerVM: ObservableObject {
             if !HelperProcessInspector.matches(pid: pid, executableURL: executableURL) { break }
             usleep(50_000)
         }
+    }
+
+    private func applyStopPreference() {
+        let outcome = HelperStopPreferenceOutcome(
+            persistenceSucceeded: setHelperEnabled(false)
+        )
+        helperEnabled = outcome.helperEnabled
+        helperStatusMessage = outcome.message ?? bindingStatusMessage
     }
 }
 

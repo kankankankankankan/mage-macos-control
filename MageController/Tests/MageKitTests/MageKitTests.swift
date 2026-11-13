@@ -180,6 +180,47 @@ final class MageKitTests: XCTestCase {
         )
     }
 
+    func testProcessInspectorFindsAnExecutableAtALaterPIDIndex() throws {
+        let pids = HelperProcessInspector.allProcessIDs()
+        XCTAssertGreaterThan(pids.count, 120)
+
+        var candidate: (index: Int, identity: HelperProcessIdentity)?
+        for index in stride(from: pids.count - 1, through: 100, by: -1) {
+            if let identity = HelperProcessInspector.identity(for: pids[index]) {
+                candidate = (index, identity)
+                break
+            }
+        }
+        let selected = try XCTUnwrap(candidate)
+        XCTAssertGreaterThanOrEqual(selected.index, 100)
+
+        let identities = HelperProcessInspector.identities(
+            named: selected.identity.executableURL.lastPathComponent
+        )
+        XCTAssertTrue(identities.contains(where: { $0.pid == selected.identity.pid }))
+    }
+
+    func testConfigStoreReportsAtomicWriteFailure() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mage-config-\(UUID().uuidString)", isDirectory: true)
+        let configURL = root.appendingPathComponent("config.json")
+        try FileManager.default.createDirectory(at: configURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertThrowsError(try KeyConfigStore(url: configURL).save(KeyConfig()))
+    }
+
+    func testHelperStopPreferenceFailureKeepsDiskPreferenceVisible() {
+        let failed = HelperStopPreferenceOutcome(persistenceSucceeded: false)
+        XCTAssertTrue(failed.helperEnabled)
+        XCTAssertTrue(failed.message?.contains("关闭偏好未写入") == true)
+        XCTAssertTrue(failed.message?.contains("下次启动") == true)
+
+        let succeeded = HelperStopPreferenceOutcome(persistenceSucceeded: true)
+        XCTAssertFalse(succeeded.helperEnabled)
+        XCTAssertNil(succeeded.message)
+    }
+
     func testInterceptorReportsUnsupportedPlaybackFailure() {
         let interceptor = KeyInterceptor()
         var received: String?
