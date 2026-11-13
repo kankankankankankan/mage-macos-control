@@ -406,26 +406,8 @@ public enum KeystrokeSimulator {
         let k = key.trimmingCharacters(in: .whitespaces).lowercased()
         let normalizedModifiers = modifiers.map(normalizeModifier)
 
-        // Fn has no USB modifier bit; preserve it through the CGEvent route.
-        if normalizedModifiers.contains("fn") {
-            return legacyPost(key: k, modifiers: normalizedModifiers)
-        }
-
-        vkLock.lock()
-        if !vkReady { vkReady = ((try? vk.start()) != nil) }
-        let ready = vkReady
-        if ready {
-            let result = postUsingVirtualKeyboard(
-                key: k, modifiers: normalizedModifiers, keyboard: vk
-            )
-            if case .failure = result {
-                vk.stop()
-                vkReady = false
-            }
-            vkLock.unlock()
-            return result
-        }
-        vkLock.unlock()
+        // 虚拟 HID 设备发出的带修饰键组合（如 ⌘W）在 macOS 上不会被系统投递给
+        // 前台应用，导致快捷键无反应；CGEvent 路径稳定可靠，统一走这里。
         return legacyPost(key: k, modifiers: normalizedModifiers)
     }
 
