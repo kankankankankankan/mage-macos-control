@@ -87,6 +87,17 @@ public enum DeviceRestartResult: Equatable, Sendable {
     case recoveryFailure(String)
 }
 
+private enum DeviceRestartError: LocalizedError {
+    case invalidStateResponse(MageProtocol.Cmd)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidStateResponse(let command):
+            return "设备读回 \(command.rawValue) 缺少首字节或包含非法状态值"
+        }
+    }
+}
+
 public struct DeviceRestartIO {
     public let sendRestart: (_ target: Bool) throws -> Void
     public let open: () throws -> Bool
@@ -165,7 +176,9 @@ public struct DeviceRestartCoordinator {
                     io.close()
                     break
                 }
-                let surround = try io.read(.channel71Switch, surroundTimeout) == 1
+                let surround = try readBinaryState(
+                    .channel71Switch, timeout: surroundTimeout, io: io
+                )
                 let observedPID = io.connectedPID()
                 guard deadline.contains(now()) else {
                     io.close()
@@ -184,14 +197,18 @@ public struct DeviceRestartCoordinator {
                     io.close()
                     break
                 }
-                let led = try io.read(.ledLight, ledTimeout) == 1
+                let led = try readBinaryState(
+                    .ledLight, timeout: ledTimeout, io: io
+                )
                 guard let micTimeout = deadline.boundedDuration(
                     at: now(), maximum: 1.5
                 ) else {
                     io.close()
                     break
                 }
-                let mic = try io.read(.micSwitch, micTimeout) == 1
+                let mic = try readBinaryState(
+                    .micSwitch, timeout: micTimeout, io: io
+                )
                 guard let audio = io.audioSnapshot() else {
                     lastObservation = "HID 已恢复，USB 音频输出或输入接口仍未就绪"
                     observe(lastObservation)
@@ -220,5 +237,19 @@ public struct DeviceRestartCoordinator {
 
         io.close()
         return .recoveryFailure(lastObservation)
+    }
+
+    private func readBinaryState(
+        _ command: MageProtocol.Cmd,
+        timeout: TimeInterval,
+        io: DeviceRestartIO
+    ) throws -> Bool {
+        guard let raw = try io.read(command, timeout) else {
+            throw DeviceRestartError.invalidStateResponse(command)
+        }
+        guard raw == 0 || raw == 1 else {
+            throw DeviceRestartError.invalidStateResponse(command)
+        }
+        return raw == 1
     }
 }

@@ -445,38 +445,65 @@ final class MageKitTests: XCTestCase {
 
     func testAudioRecoveryRequiresLiveExactInputOutputAndSampleRate() throws {
         let output = audioDevice(
-            id: 1, input: false, output: true, rate: 48_000
+            id: 1, streamNumber: 2, input: false, output: true, rate: 48_000
         )
         let input = audioDevice(
-            id: 2, input: true, output: false, rate: 48_000
+            id: 2, streamNumber: 3, input: true, output: false, rate: 48_000
         )
 
         let snapshot = try XCTUnwrap(AudioControl.recoverySnapshot(from: [output, input]))
         XCTAssertEqual(snapshot.sampleRate, 48_000)
         XCTAssertEqual(snapshot.availableRates, [44_100, 48_000])
+        XCTAssertEqual(
+            AudioControl.canonicalPhysicalDeviceUID(output.deviceUID),
+            "AppleUSBAudioEngine:FIIO:SNOWSKY MAGE:000000000000"
+        )
+        XCTAssertEqual(
+            AudioControl.canonicalPhysicalDeviceUID(input.deviceUID),
+            "AppleUSBAudioEngine:FIIO:SNOWSKY MAGE:000000000000"
+        )
 
         XCTAssertNil(AudioControl.recoverySnapshot(from: [output]))
         XCTAssertNil(AudioControl.recoverySnapshot(from: [
-            output,
+            audioDevice(id: 1, deviceUID: output.deviceUID, streamNumber: 2,
+                        alive: true, input: false, output: true, rate: 48_000),
             audioDevice(id: 2, alive: false, input: true, output: false, rate: 48_000),
         ]))
         XCTAssertNil(AudioControl.recoverySnapshot(from: [
-            audioDevice(id: 1, input: false, output: true, rate: nil),
+            audioDevice(id: 1, streamNumber: 2, input: false, output: true, rate: nil),
             input,
         ]))
         XCTAssertNil(AudioControl.recoverySnapshot(from: [
-            audioDevice(id: 1, transport: kAudioDeviceTransportTypeVirtual,
+            audioDevice(id: 1, transport: kAudioDeviceTransportTypeVirtual, streamNumber: 2,
                         input: false, output: true, rate: 48_000),
             input,
         ]))
         XCTAssertNil(AudioControl.recoverySnapshot(from: [
             output,
-            audioDevice(id: 2, modelUID: "different-model", input: true,
+            audioDevice(id: 2, modelUID: "different-model", streamNumber: 3, input: true,
                         output: false, rate: 48_000),
         ]))
         XCTAssertNil(AudioControl.recoverySnapshot(from: [
-            audioDevice(id: 1, modelUID: nil, input: false, output: true, rate: 48_000),
-            audioDevice(id: 2, modelUID: nil, input: true, output: false, rate: 48_000),
+            audioDevice(id: 1, modelUID: nil, streamNumber: 2, input: false,
+                        output: true, rate: 48_000),
+            audioDevice(id: 2, modelUID: nil, streamNumber: 3, input: true,
+                        output: false, rate: 48_000),
+        ]))
+        XCTAssertNil(AudioControl.recoverySnapshot(from: [
+            output,
+            audioDevice(
+                id: 2,
+                deviceUID: "AppleUSBAudioEngine:FIIO:SNOWSKY MAGE:other-device:3",
+                streamNumber: 3,
+                input: true,
+                output: false,
+                rate: 48_000
+            ),
+        ]))
+        XCTAssertNil(AudioControl.recoverySnapshot(from: [
+            output,
+            audioDevice(id: 2, streamNumber: nil, input: true,
+                        output: false, rate: 48_000),
         ]))
     }
 
@@ -553,6 +580,58 @@ final class MageKitTests: XCTestCase {
         XCTAssertEqual(events, ["write-1", "open", "read-56", "read-6", "read-18", "audio"])
     }
 
+    func testRestartCoordinatorRejectsMissingChannel71ReadbackWhenTargetIsOff() {
+        let result = runCoordinatorWithReadbacks(
+            targetState: false,
+            read: { command in
+                command == .channel71Switch ? nil : 0
+            }
+        )
+
+        guard case .recoveryFailure = result else {
+            return XCTFail("missing channel71 readback must not report success")
+        }
+    }
+
+    func testRestartCoordinatorRejectsMissingLEDReadback() {
+        let result = runCoordinatorWithReadbacks(
+            targetState: false,
+            read: { command in
+                command == .ledLight ? nil : 0
+            }
+        )
+
+        guard case .recoveryFailure = result else {
+            return XCTFail("missing LED readback must not report success")
+        }
+    }
+
+    func testRestartCoordinatorRejectsMissingMicReadback() {
+        let result = runCoordinatorWithReadbacks(
+            targetState: false,
+            read: { command in
+                command == .micSwitch ? nil : 0
+            }
+        )
+
+        guard case .recoveryFailure = result else {
+            return XCTFail("missing MIC readback must not report success")
+        }
+    }
+
+    func testRestartCoordinatorRejectsOutOfRangeBinaryReadback() {
+        let result = runCoordinatorWithReadbacks(
+            targetState: true,
+            read: { command in
+                command == .ledLight ? 2 : 1
+            }
+        )
+
+        guard case .recoveryFailure = result else {
+            return XCTFail("out-of-range readback must not report success")
+        }
+    }
+
     func testRestartCoordinatorRejectsResultsAfterSuccessDeadline() {
         var now: TimeInterval = 200
         var openCount = 0
@@ -588,22 +667,59 @@ final class MageKitTests: XCTestCase {
         name: String = VendorChannel.productName,
         transport: UInt32 = kAudioDeviceTransportTypeUSB,
         modelUID: String? = "SNOWSKY MAGE:2972:4022",
+        deviceUID: String? = nil,
+        streamNumber: Int? = 2,
         alive: Bool = true,
         input: Bool,
         output: Bool,
         rate: Double?
     ) -> AudioDeviceInfo {
-        AudioDeviceInfo(
+        let resolvedDeviceUID = deviceUID ?? (
+            streamNumber.map {
+                "AppleUSBAudioEngine:FIIO:SNOWSKY MAGE:000000000000:\($0)"
+            }
+        )
+        return AudioDeviceInfo(
             id: id,
             name: name,
             transportType: transport,
-            deviceUID: "AppleUSBAudioEngine:FIIO:SNOWSKY MAGE:test:\(id)",
+            deviceUID: resolvedDeviceUID,
             modelUID: modelUID,
             isAlive: alive,
             hasInputStreams: input,
             hasOutputStreams: output,
             nominalSampleRate: rate,
             sampleRates: output ? [44_100, 48_000] : []
+        )
+    }
+
+    private func runCoordinatorWithReadbacks(
+        targetState: Bool,
+        read: @escaping (MageProtocol.Cmd) -> UInt8?
+    ) -> DeviceRestartResult {
+        var now: TimeInterval = 100
+        let coordinator = DeviceRestartCoordinator(
+            now: { now },
+            sleep: { delay in now += delay }
+        )
+        return coordinator.run(
+            targetState: targetState,
+            startedAt: 100,
+            timeout: 1,
+            retryDelay: 0.35,
+            io: DeviceRestartIO(
+                sendRestart: { _ in },
+                open: { true },
+                read: { command, _ in read(command) },
+                connectedPID: { 0x4022 },
+                audioSnapshot: {
+                    MageAudioRecoverySnapshot(
+                        sampleRate: 48_000,
+                        availableRates: [44_100, 48_000]
+                    )
+                },
+                close: {}
+            )
         )
     }
 

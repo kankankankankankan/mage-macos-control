@@ -119,23 +119,41 @@ public enum AudioControl {
                 && $0.transportType == kAudioDeviceTransportTypeUSB
                 && !($0.modelUID?.isEmpty ?? true)
         }
-        let families = Dictionary(grouping: liveDevices, by: { $0.modelUID! })
-        guard let family = families.values.first(where: { devices in
-                  devices.contains(where: { $0.hasInputStreams })
-                      && devices.contains(where: {
-                          $0.hasOutputStreams && $0.nominalSampleRate != nil
-                      })
-              }),
-              let output = family.first(where: {
+        guard let output = liveDevices.first(where: {
                   $0.hasOutputStreams && $0.nominalSampleRate != nil
               }),
-              let sampleRate = output.nominalSampleRate else {
+              let outputModelUID = output.modelUID,
+              let outputPhysicalUID = canonicalPhysicalDeviceUID(output.deviceUID),
+              let sampleRate = output.nominalSampleRate,
+              liveDevices.contains(where: {
+                  $0.hasInputStreams
+                      && $0.modelUID == outputModelUID
+                      && canonicalPhysicalDeviceUID($0.deviceUID) == outputPhysicalUID
+              }) else {
             return nil
         }
         return MageAudioRecoverySnapshot(
             sampleRate: sampleRate,
             availableRates: output.sampleRates
         )
+    }
+
+    /// CoreAudio exposes separate stream nodes for MAGE input and output.
+    /// Their final numeric component is the stream number; the preceding UID
+    /// identifies the physical device and must match exactly.
+    static func canonicalPhysicalDeviceUID(_ deviceUID: String?) -> String? {
+        guard let deviceUID else { return nil }
+        let trimmed = deviceUID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let components = trimmed.split(separator: ":", omittingEmptySubsequences: false)
+        guard components.count >= 2,
+              let streamNumber = components.last,
+              !streamNumber.isEmpty,
+              streamNumber.allSatisfy(\.isNumber) else {
+            return nil
+        }
+        let physicalUID = components.dropLast().joined(separator: ":")
+        return physicalUID.isEmpty ? nil : physicalUID
     }
 
     static func isMageDeviceName(_ name: String) -> Bool {
