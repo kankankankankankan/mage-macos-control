@@ -81,8 +81,21 @@ public final class VendorChannel: @unchecked Sendable {
     public static let productName = "SNOWSKY MAGE"
     public static let virtualKeyboardVendorID = 0xF1F0
 
-    public enum Error: Swift.Error {
+    public enum Error: Swift.Error, LocalizedError {
         case deviceNotFound, openFailed(IOReturn), writeFailed(IOReturn), timeout
+
+        public var errorDescription: String? {
+            switch self {
+            case .deviceNotFound:
+                return "未发现 SNOWSKY MAGE"
+            case .openFailed(let code):
+                return "无法打开 MAGE HID 通道（0x\(String(UInt32(bitPattern: code), radix: 16))）"
+            case .writeFailed(let code):
+                return "MAGE HID 命令写入失败（0x\(String(UInt32(bitPattern: code), radix: 16))）"
+            case .timeout:
+                return "MAGE HID 响应超时"
+            }
+        }
     }
 
     private var manager: IOHIDManager?
@@ -222,21 +235,26 @@ public final class VendorChannel: @unchecked Sendable {
         }
     }
 
+    /// Write a command without treating a response as completion. Use this for
+    /// commands that intentionally restart the USB device, then close this
+    /// connection and verify the requested state through a new connection.
+    public func sendWithoutResponse(cmd: MageProtocol.Cmd, payload: [UInt8] = [],
+                                    set: Bool = false) throws {
+        try transactionQueue.sync {
+            let output = VendorChannel.makeOutputReport(cmd: cmd, payload: payload, set: set)
+            try writeSerialized(output.report)
+        }
+    }
+
     private func sendSerialized(cmd: MageProtocol.Cmd, payload: [UInt8],
                                 set: Bool, timeout: TimeInterval) throws -> [UInt8] {
         lock.lock()
         guard let dev = device else { lock.unlock(); throw Error.deviceNotFound }
         lock.unlock()
 
-        let frame = MageProtocol.makeFrame(
-            head: set ? MageProtocol.setHead : MageProtocol.getHead,
-            start: set ? MageProtocol.setStart : MageProtocol.getStart,
-            cmd: cmd.rawValue, payload: payload)
-
-        var report = [UInt8](repeating: 0, count: 64)
-        report[0] = 7
-        for (i, b) in frame.enumerated() where i < 63 { report[i + 1] = b }
-        let sequence = UInt16(frame[2]) << 8 | UInt16(frame[3])
+        let output = VendorChannel.makeOutputReport(cmd: cmd, payload: payload, set: set)
+        let report = output.report
+        let sequence = output.sequence
 
         let semaphore = DispatchSemaphore(value: 0)
         var result: [UInt8] = []
@@ -251,11 +269,11 @@ public final class VendorChannel: @unchecked Sendable {
         }
         lock.unlock()
 
-        var reportCopy = report
-        let r = IOHIDDeviceSetReport(dev, kIOHIDReportTypeOutput, 7, &reportCopy, 64)
-        guard r == kIOReturnSuccess else {
+        do {
+            try writeSerialized(report, device: dev)
+        } catch {
             clearPending(sequence: sequence)
-            throw Error.writeFailed(r)
+            throw error
         }
         if semaphore.wait(timeout: .now() + timeout) == .timedOut {
             lock.lock()
@@ -274,6 +292,42 @@ public final class VendorChannel: @unchecked Sendable {
             throw Error.timeout
         }
         return result
+    }
+
+    static func makeOutputReport(cmd: MageProtocol.Cmd, payload: [UInt8],
+                                 set: Bool) -> (report: [UInt8], sequence: UInt16) {
+        let frame = MageProtocol.makeFrame(
+            head: set ? MageProtocol.setHead : MageProtocol.getHead,
+            start: set ? MageProtocol.setStart : MageProtocol.getStart,
+            cmd: cmd.rawValue, payload: payload)
+        var report = [UInt8](repeating: 0, count: 64)
+        report[0] = 7
+        for (index, byte) in frame.enumerated() where index < 63 {
+            report[index + 1] = byte
+        }
+        let sequence = UInt16(frame[2]) << 8 | UInt16(frame[3])
+        return (report, sequence)
+    }
+
+    private func writeSerialized(_ report: [UInt8], device knownDevice: IOHIDDevice? = nil) throws {
+        let dev: IOHIDDevice
+        if let knownDevice {
+            dev = knownDevice
+        } else {
+            lock.lock()
+            guard let connectedDevice = device else {
+                lock.unlock()
+                throw Error.deviceNotFound
+            }
+            dev = connectedDevice
+            lock.unlock()
+        }
+
+        var reportCopy = report
+        let result = IOHIDDeviceSetReport(
+            dev, kIOHIDReportTypeOutput, 7, &reportCopy, reportCopy.count
+        )
+        guard result == kIOReturnSuccess else { throw Error.writeFailed(result) }
     }
 
     public func close() {

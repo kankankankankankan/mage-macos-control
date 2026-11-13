@@ -7,6 +7,9 @@ import MageKit
 
 // MARK: - 视图模型
 
+private let restartRecoveryTimeout: TimeInterval = 20
+private let restartRetryDelay: TimeInterval = 0.35
+
 func fileLog(_ message: String) {
     let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(message)\n"
     let url = URL(fileURLWithPath: NSHomeDirectory() + "/.mage-controller.log")
@@ -34,6 +37,7 @@ final class ControllerVM: ObservableObject {
     @Published var helperStatusMessage: String?
     @Published var bindingStatusMessage: String?
     @Published var statusMessage = "未连接"
+    @Published private(set) var deviceTransitioning = false
 
     private let channel = VendorChannel()
     private var pollWork: DispatchWorkItem?
@@ -42,6 +46,16 @@ final class ControllerVM: ObservableObject {
     private var helperStopRequested = false
     private var configReadFailed = false
     private var lastHelperStatusDate: Date?
+    private var transitionErrorMessage: String?
+
+    private struct DeviceSnapshot: Sendable {
+        let pid: Int
+        let ledOn: Bool
+        let micOn: Bool
+        let surround71: Bool
+        let sampleRate: Double
+        let availableRates: [Double]
+    }
 
     private static let homeURL = FileManager.default.homeDirectoryForCurrentUser
     private static let configURL = homeURL
@@ -179,6 +193,7 @@ final class ControllerVM: ObservableObject {
     func poll() {
         pollWork?.cancel()
         refreshHelperState()
+        guard !deviceTransitioning else { return }
         let work = DispatchWorkItem { [weak self] in self?.pollOnce() }
         pollWork = work
         DispatchQueue.global().asyncAfter(deadline: .now() + 2.0, execute: work)
@@ -192,13 +207,15 @@ final class ControllerVM: ObservableObject {
             let led = try channel.send(cmd: .ledLight).first ?? 0
             let mic = try channel.send(cmd: .micSwitch).first ?? 0
             let s71 = try channel.send(cmd: .channel71Switch).first ?? 0
-            let wasConnected = self.connected
             Task { @MainActor in
+                guard !self.deviceTransitioning else { return }
+                let wasConnected = self.connected
                 self.connected = true
                 self.pid = self.channel.connectedPID
                 self.ledOn = led == 1
                 self.micOn = mic == 1
                 self.surround71 = s71 == 1
+                self.transitionErrorMessage = nil
                 self.statusMessage = String(format: "已连接 PID=0x%04X", self.pid)
                 fileLog("\(self.statusMessage) LED=\(led) MIC=\(mic) 7.1=\(s71)")
                 if !wasConnected { fileLog("设备上线") }
@@ -210,8 +227,10 @@ final class ControllerVM: ObservableObject {
             }
         } catch {
             Task { @MainActor in
+                guard !self.deviceTransitioning else { return }
                 self.connected = false
-                self.statusMessage = "未连接（等待设备）"
+                self.pid = 0
+                self.statusMessage = self.transitionErrorMessage ?? "未连接（等待设备）"
                 fileLog("设备离线: \(error.localizedDescription)")
                 self.channel.close()
                 self.poll()
@@ -219,18 +238,136 @@ final class ControllerVM: ObservableObject {
         }
     }
 
-    func toggleLED() { runSet(.ledLight, value: ledOn ? 0 : 1, update: { self.ledOn = $0 == 1 }) }
-    func toggleMic() { runSet(.micSwitch, value: micOn ? 0 : 1, update: { self.micOn = $0 == 1 }) }
+    func toggleLED() {
+        guard connected, !deviceTransitioning else { return }
+        runSet(.ledLight, value: ledOn ? 0 : 1, update: { self.ledOn = $0 == 1 })
+    }
+
+    func toggleMic() {
+        guard connected, !deviceTransitioning else { return }
+        runSet(.micSwitch, value: micOn ? 0 : 1, update: { self.micOn = $0 == 1 })
+    }
 
     func toggle71() {
-        // 切换 7.1 设备会重新枚举：发送命令后等待重连再刷新
-        runSet(.channel71Switch, value: surround71 ? 0 : 1, update: { _ in })
-        statusMessage = "正在切换 7.1（设备重新枚举）…"
+        guard connected, !deviceTransitioning else { return }
+        let targetState = !surround71
+        let targetValue: UInt8 = targetState ? 1 : 0
+        let startedAt = Date()
+
+        deviceTransitioning = true
+        transitionErrorMessage = nil
+        connected = false
+        pid = 0
+        pollWork?.cancel()
+        statusMessage = targetState
+            ? "正在开启 7.1，等待设备重启重连…"
+            : "正在关闭 7.1，等待设备重启重连…"
+        fileLog("7.1 切换开始 target=\(targetValue)")
+
         let channel = channel
-        DispatchQueue.global().asyncAfter(deadline: .now() + 6) { [weak self] in
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                // The write only means the command reached the HID transport.
+                // Completion is established below through a fresh connection.
+                try channel.sendWithoutResponse(
+                    cmd: .channel71Switch, payload: [targetValue], set: true
+                )
+                fileLog("7.1 命令已写入 target=\(targetValue)，关闭旧通道")
+            } catch {
+                channel.close()
+                let message = "7.1 命令发送失败，未自动重试：\(error.localizedDescription)"
+                Task { @MainActor in self?.finish71TransitionFailure(message) }
+                return
+            }
+
             channel.close()
-            Task { @MainActor in self?.poll() }
+            let deadline = startedAt.addingTimeInterval(restartRecoveryTimeout)
+            var lastObservation = "等待 USB/HID 重新枚举"
+
+            while Date() < deadline {
+                Thread.sleep(forTimeInterval: restartRetryDelay)
+                do {
+                    guard try channel.open() else {
+                        lastObservation = "尚未发现 SNOWSKY MAGE"
+                        continue
+                    }
+
+                    let surround = try channel.send(cmd: .channel71Switch).first == 1
+                    let observedPID = channel.connectedPID
+                    guard surround == targetState else {
+                        lastObservation = "设备已出现，但 7.1 仍为 \(surround ? 1 : 0)"
+                        fileLog("7.1 重连读回 PID=0x\(String(observedPID, radix: 16)) state=\(surround ? 1 : 0)，继续等待")
+                        channel.close()
+                        continue
+                    }
+
+                    let led = try channel.send(cmd: .ledLight).first == 1
+                    let mic = try channel.send(cmd: .micSwitch).first == 1
+                    let audioDevices = AudioControl.mageDevices()
+                    guard let output = audioDevices.first(where: { $0.isOutput }),
+                          audioDevices.contains(where: { !$0.isOutput }) else {
+                        lastObservation = "HID 已恢复，音频输出或输入接口仍未就绪"
+                        channel.close()
+                        continue
+                    }
+
+                    let snapshot = DeviceSnapshot(
+                        pid: observedPID,
+                        ledOn: led,
+                        micOn: mic,
+                        surround71: surround,
+                        sampleRate: AudioControl.currentSampleRate(device: output),
+                        availableRates: output.sampleRates
+                    )
+                    let elapsed = Date().timeIntervalSince(startedAt)
+                    Task { @MainActor in
+                        self?.finish71TransitionSuccess(snapshot, elapsed: elapsed)
+                    }
+                    return
+                } catch {
+                    lastObservation = error.localizedDescription
+                    channel.close()
+                }
+            }
+
+            channel.close()
+            let message = "7.1 切换超时：\(lastObservation)。请重新插拔 MAGE USB 后重试"
+            Task { @MainActor in self?.finish71TransitionFailure(message) }
         }
+    }
+
+    private func finish71TransitionSuccess(_ snapshot: DeviceSnapshot, elapsed: TimeInterval) {
+        guard deviceTransitioning else { return }
+        deviceTransitioning = false
+        transitionErrorMessage = nil
+        connected = true
+        pid = snapshot.pid
+        ledOn = snapshot.ledOn
+        micOn = snapshot.micOn
+        surround71 = snapshot.surround71
+        sampleRate = snapshot.sampleRate
+        availableRates = snapshot.availableRates
+        statusMessage = String(format: "已连接 PID=0x%04X", snapshot.pid)
+        fileLog(String(
+            format: "7.1 切换完成 target=%d PID=0x%04X elapsed=%.2fs LED=%d MIC=%d",
+            snapshot.surround71 ? 1 : 0,
+            snapshot.pid,
+            elapsed,
+            snapshot.ledOn ? 1 : 0,
+            snapshot.micOn ? 1 : 0
+        ))
+        poll()
+    }
+
+    private func finish71TransitionFailure(_ message: String) {
+        guard deviceTransitioning else { return }
+        deviceTransitioning = false
+        connected = false
+        pid = 0
+        transitionErrorMessage = message
+        statusMessage = message
+        fileLog(message)
+        poll()
     }
 
     func setRate(_ rate: Double) {
@@ -561,15 +698,21 @@ struct MenuContent: View {
         VStack(alignment: .leading, spacing: 0) {
             // 状态头
             HStack(spacing: 8) {
-                Image(systemName: vm.connected ? "gamecontroller.fill" : "gamecontroller")
+                Image(systemName: vm.deviceTransitioning
+                    ? "arrow.triangle.2.circlepath"
+                    : (vm.connected ? "gamecontroller.fill" : "gamecontroller"))
                     .font(.system(size: 14))
                 Text("MAGE 雪漫天")
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
                 Circle()
-                    .fill(vm.connected ? Color(hex: 0x34C759) : Color.primary.opacity(0.25))
+                    .fill(vm.deviceTransitioning
+                        ? Color.orange
+                        : (vm.connected ? Color(hex: 0x34C759) : Color.primary.opacity(0.25)))
                     .frame(width: 8, height: 8)
-                Text(vm.connected ? formatRate(vm.sampleRate) : "未连接")
+                Text(vm.deviceTransitioning
+                    ? "重启中"
+                    : (vm.connected ? formatRate(vm.sampleRate) : "未连接"))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }

@@ -155,17 +155,20 @@ struct MainWindowView: View {
     }
 
     private var statusTitle: String {
+        if vm.deviceTransitioning { return "MAGE 雪漫天 · 设备重启重连中" }
         if vm.helperRunning && !vm.connected { return "按键拦截运行中 · 设备控制暂不可用" }
         return vm.connected ? "MAGE 雪漫天 · 已连接" : "未连接 · 等待设备"
     }
 
     private var statusDetail: String {
-        vm.connected
+        if vm.deviceTransitioning { return "请稍候" }
+        return vm.connected
             ? "\(formatRate(vm.sampleRate)) · \(vm.surround71 ? "游戏模式" : "HiFi 模式")"
             : "—"
     }
 
     private var statusColor: Color {
+        if vm.deviceTransitioning { return .orange }
         if vm.connected { return Color(hex: 0x34C759) }
         if vm.helperRunning { return .orange }
         return Color.primary.opacity(0.25)
@@ -271,8 +274,11 @@ struct MainWindowView: View {
     }
 
     private var deviceControlMessage: String {
+        if vm.deviceTransitioning { return vm.statusMessage }
         if vm.helperRunning && !vm.connected { return "按键拦截期间，设备控制暂不可用" }
-        if vm.statusMessage.hasPrefix("命令失败") { return vm.statusMessage }
+        if vm.statusMessage.hasPrefix("命令失败") || vm.statusMessage.hasPrefix("7.1") {
+            return vm.statusMessage
+        }
         return ""
     }
 

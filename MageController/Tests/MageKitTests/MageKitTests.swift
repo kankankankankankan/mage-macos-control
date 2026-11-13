@@ -98,6 +98,35 @@ final class MageKitTests: XCTestCase {
         XCTAssertFalse(channel.isConnected)
     }
 
+    func testVendorBuildsOneShot71SetReport() throws {
+        MageProtocol.resetSeq()
+        let output = VendorChannel.makeOutputReport(
+            cmd: .channel71Switch, payload: [1], set: true
+        )
+
+        XCTAssertEqual(output.report.count, 64)
+        XCTAssertEqual(output.report.first, 7)
+        let frame = try XCTUnwrap(
+            MageProtocol.parseDetailedFrame(Array(output.report.dropFirst()))
+        )
+        XCTAssertEqual(frame.head, MageProtocol.setHead)
+        XCTAssertEqual(frame.start, MageProtocol.setStart)
+        XCTAssertEqual(frame.sequence, output.sequence)
+        XCTAssertEqual(frame.cmd, MageProtocol.Cmd.channel71Switch.rawValue)
+        XCTAssertEqual(frame.payload, [1])
+    }
+
+    func testVendorErrorsExposeActionableDescriptions() {
+        XCTAssertEqual(VendorChannel.Error.deviceNotFound.localizedDescription,
+                       "未发现 SNOWSKY MAGE")
+        XCTAssertEqual(VendorChannel.Error.timeout.localizedDescription,
+                       "MAGE HID 响应超时")
+        XCTAssertTrue(
+            VendorChannel.Error.writeFailed(kIOReturnError).localizedDescription
+                .contains("命令写入失败")
+        )
+    }
+
     func testLiveUnavailableVendorCanRepeatedlyOpenAndClose() throws {
         guard ProcessInfo.processInfo.environment["MAGE_LIVE_HID_UNAVAILABLE_TEST"] == "1" else {
             throw XCTSkip("requires the attached SNOWSKY MAGE to be seized by a separate helper")
