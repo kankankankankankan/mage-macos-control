@@ -863,6 +863,37 @@ final class MageKitTests: XCTestCase {
         ), bindingFailure)
     }
 
+    func testHelperKeepAliveRetriesWhenEnabledButNotRunning() {
+        // 开关开着、helper 不在、无进行中的转换且无错误记录：应自动重试恢复。
+        XCTAssertTrue(HelperKeepAlivePolicy.shouldRetryRecovery(
+            enabled: true, running: false, transitioning: false, status: nil
+        ))
+        // App 重启杀 helper 后最常见的就是 info「已停止」，仍应拉起。
+        XCTAssertTrue(HelperKeepAlivePolicy.shouldRetryRecovery(
+            enabled: true,
+            running: false,
+            transitioning: false,
+            status: HelperStatusRecord(kind: .info, message: "按键拦截已停止")
+        ))
+
+        // 以下状态不应重试，避免和用户手动开关或需人工处理的错误竞争。
+        XCTAssertFalse(HelperKeepAlivePolicy.shouldRetryRecovery(
+            enabled: false, running: false, transitioning: false, status: nil
+        ))
+        XCTAssertFalse(HelperKeepAlivePolicy.shouldRetryRecovery(
+            enabled: true, running: true, transitioning: false, status: nil
+        ))
+        XCTAssertFalse(HelperKeepAlivePolicy.shouldRetryRecovery(
+            enabled: true, running: false, transitioning: true, status: nil
+        ))
+        XCTAssertFalse(HelperKeepAlivePolicy.shouldRetryRecovery(
+            enabled: true,
+            running: false,
+            transitioning: false,
+            status: HelperStatusRecord(kind: .actionError, message: "检测到旧版管理员 helper")
+        ))
+    }
+
     func testInterceptorReportsUnsupportedPlaybackFailure() {
         let interceptor = KeyInterceptor()
         var received: String?

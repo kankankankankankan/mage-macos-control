@@ -49,6 +49,7 @@ final class ControllerVM: ObservableObject {
     private var transitionErrorMessage: String?
     private var deviceTransitionID: UUID?
     private let transitionInterlock = DeviceTransitionInterlock()
+    private var helperRecoveryGeneration = 0
 
     var deviceControlsEnabled: Bool {
         connected && !deviceTransitioning && !helperTransitioning && !helperRunning
@@ -440,6 +441,13 @@ final class ControllerVM: ObservableObject {
         }
     }
 
+    private var lastHelperStatusRecord: HelperStatusRecord? {
+        guard let data = try? Data(contentsOf: Self.helperStatusURL),
+              let record = try? JSONDecoder().decode(HelperStatusRecord.self, from: data)
+        else { return nil }
+        return record
+    }
+
     private func refreshHelperStatus() {
         guard let data = try? Data(contentsOf: Self.helperStatusURL),
               let record = try? JSONDecoder().decode(HelperStatusRecord.self, from: data),
@@ -465,8 +473,29 @@ final class ControllerVM: ObservableObject {
             return
         }
         guard helperEnabled && !helperRunning else { return }
+        // 开关偏好仍开着但 helper 已不在：轮询兜底会自动拉起。
+        if helperStatusMessage == nil {
+            helperStatusMessage = "按键拦截未运行，正在自动恢复…"
+        }
         guard beginHelperTransition() else { return }
         startHelper(persistPreference: false)
+    }
+
+    private func scheduleHelperRecoveryRetry() {
+        let generation = helperRecoveryGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            guard let self else { return }
+            // 仅当这是一次仍未成功的恢复尝试时继续重试，避免与手动开关竞争。
+            guard self.helperRecoveryGeneration == generation,
+                  self.helperEnabled,
+                  HelperKeepAlivePolicy.shouldRetryRecovery(
+                      enabled: self.helperEnabled,
+                      running: self.helperRunning,
+                      transitioning: self.helperTransitioning,
+                      status: self.lastHelperStatusRecord
+                  ) else { return }
+            self.restoreHelperIfNeeded()
+        }
     }
 
     func toggleHelper() {
@@ -555,6 +584,7 @@ final class ControllerVM: ObservableObject {
             helperLogHandle = logHandle
             helperStopRequested = false
             try process.run()
+        helperRecoveryGeneration += 1
 
             Task { @MainActor [weak self, weak process] in
                 try? await Task.sleep(for: .milliseconds(350))
@@ -569,6 +599,10 @@ final class ControllerVM: ObservableObject {
                         self.helperStatusMessage = "按键拦截启动失败：进程未保持运行"
                     }
                     self.finishHelperTransition()
+                    // 开关偏好仍是开时，短暂延迟后自动重试，避免一次失败就永久失联。
+                    if self.helperEnabled {
+                        self.scheduleHelperRecoveryRetry()
+                    }
                     return
                 }
                 if persistPreference && !self.setHelperEnabled(true) {

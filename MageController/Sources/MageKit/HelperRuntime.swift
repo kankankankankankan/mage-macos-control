@@ -252,3 +252,24 @@ public enum HelperProcessInspector {
             && identity.executableURL == executableURL.standardizedFileURL.resolvingSymlinksInPath()
     }
 }
+
+/// 决定「开关偏好开启但 helper 未存活」时是否应自动重试恢复。
+///
+/// 只按偏好与进程状态判断，不检查具体失败原因：启动失败、异常退出、
+/// 以及 App 重启时杀掉 helper 后未再拉起，都通过同一条轮询兜底收敛，
+/// 避免开关显示开、按键却回到设备默认功能的失联状态。
+public enum HelperKeepAlivePolicy {
+    public static func shouldRetryRecovery(
+        enabled: Bool,
+        running: Bool,
+        transitioning: Bool,
+        status: HelperStatusRecord?
+    ) -> Bool {
+        guard enabled, !running, !transitioning else { return false }
+        if let status, status.kind == .actionError {
+            // 上次尝试已留下明确错误（如旧管理员 helper 冲突），先让用户处理。
+            return false
+        }
+        return true
+    }
+}
