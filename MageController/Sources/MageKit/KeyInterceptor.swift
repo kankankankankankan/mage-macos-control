@@ -291,6 +291,7 @@ public enum KeystrokeSimulator {
         case unsupportedKey(String)
         case unsupportedModifier(String)
         case eventCreationFailed
+        case eventAccessDenied
         case eventDeliveryFailed(String)
 
         public var errorDescription: String? {
@@ -299,6 +300,7 @@ public enum KeystrokeSimulator {
             case .unsupportedKey(let key): return "不支持回放的按键：\(key)"
             case .unsupportedModifier(let modifier): return "不支持回放的修饰键：\(modifier)"
             case .eventCreationFailed: return "无法创建键盘事件"
+            case .eventAccessDenied: return "macOS 未授予本程序发送键盘事件的辅助功能权限"
             case .eventDeliveryFailed(let reason): return "键盘事件发送失败：\(reason)"
             }
         }
@@ -473,6 +475,9 @@ public enum KeystrokeSimulator {
     }
 
     private static func legacyPost(key: String, modifiers: [String]) -> Result<Void, PlaybackError> {
+        guard CGPreflightPostEventAccess() else {
+            return .failure(.eventAccessDenied)
+        }
         let flags = legacyFlags(for: modifiers)
         if key.isEmpty {
             // 纯修饰键：flagsChanged
