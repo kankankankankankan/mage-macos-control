@@ -1,6 +1,19 @@
 # MAGE Controller 项目交接文档
 
-> 最后更新：2026-11-13 15:09。本文档面向后续接手的智能体，读完即可继续开发，无需翻历史对话。
+> FF-182 于 2026-11-13 修订交接与事实索引。以下记录区分历史说明、已交付版本与当前动态状态；继续任务先读对应 Issue 最新评论，不能只读本文就判断设备/任务完成。
+
+## 当前权威入口与接续（FF-182）
+
+- 项目 UUID：`b0dd0eaa-e76a-46fa-a266-d523b9925cbf`。平台本地资源仍是本目录，`execution_mode=worktree`；GitHub 资源 `main` 用于定位，不能假定其与当前验收源树相同。先查实际 branch/HEAD、dirty/untracked 和未推送提交，保护用户修改。
+- 本次只读核对本目录 `main` 为 `ea33847432f6ca6c12cca0c02f5cf2163398392a`，领先其 origin/main 1 个提交；这不包含全部后续集成。FF-171 记录的集成 SHA `9f47d389aab9de08e64958e6c2963e459996be06`、完整 Git tree `97c0db1d249c0ae7bf2f18d0991aba68fcb05bde`；这些对象在本地可读取。`MageController` 子树为 `9a461a60804d934d905d24af20ffc5826f775204`，与完整 tree 不是同一标识。起步和交接须重新核对，不能从 main 直接交旧版本。
+- 稳定技术栈：SwiftPM tools 5.10，最低 macOS 15，SwiftUI + AppKit，MageKit 与 App/helper；集成版含 MageKitTests。以指定 SHA 的 Package.swift 和脚本为准。构建在该版本独立工作树/输出执行 `swift test --package-path MageController --scratch-path <隔离目录>` 和在 MageController 内 `bash scripts/build-app.sh`。脚本会重建自己的 dist；不得在用户正在使用的包目录运行。现有脚本吞签名失败，必须另行执行 `codesign --verify --deep --strict --verbose=2 <候选.app>` 并核对退出码，成功后才能报告签名通过。本次未修改该产品脚本。
+- 产物为 `MageController/dist/MAGE Controller.app`，helper 为其 `Contents/MacOS/mage-helper`；记录候选源码/tree、App/helper hash、签名和隔离启动证据。只使用已授权且不影响正式进程/配置的启动方式，测试进程以精确 PID 记录清理；禁止按名称 pkill。构建、GUI、硬件独占测试按资源串行。
+- FF-179 已交付非 root helper 与配置失败反馈；FF-181 `f9d0cbb1a44f0ec85e2b20d64174182d562c39b9` 修复 IOHID 生命周期和响应匹配，均已终态，不因规则升级重启。有关请求序号，既有 `MageKeys/协议笔记.md` 第 61 行本已明确设备计数器不回显主机 seq；FF-181 真实 report 再次证实。具体实现和迟到响应隔离以该修订为准。
+- FF-175 后续报告曾把另一台 FIIO 设备误认作 MAGE 的新模式，已被 FF-183 的统一日志/IORegistry 证据纠正。MAGE 的 VID `0x2972`，正常 PID `0x4022` / `0x4026`，观测 USB 位置 `0x01100000`；另一设备 PID `0x0144` 位于 `0x01320000`。不能只按相同 VID 放宽匹配，不能向另一设备写 MAGE 命令。位置仅是该机器该次观测，不硬编码为产品常量。
+- FF-183 最近诊断：关闭 7.1 后 MAGE 从总线消失，应用/探针时序/固件/供电根因仍未知；设备固件版本未核实。FF-175 保持 backlog，待用户物理恢复、FF-183 读回验证与可证实结论后由总控放行同版独立复验。物理按键、实体灯与最终恢复状态没有完整验收。动态状态以 FF-171/175/183 当前记录为准，本段不证明现在仍未连接。
+- 主要交接：保留 FF-183 上指向总控的一次性 `in_review` 条件唤醒 `01a1d45e-945b-7a96-bcac-4e9bcede078b`；FF-175 的后续验收回报在实际放行时读取现有规则再确定单一来源。阶段关闭仅做已交付汇总，复用已消费版本与证据，不再次完整审查。FF-181 已终态的 blocked 超时监听由 FF-182 清理，其他有效阻塞/超时规则保留。
+- 共享工作方式见已绑定 shared-delivery；项目总控维护本文件稳定事实与 Issue 的动态交接记录。Mika 负责用户和跨项目异常，不另建重复项目总控循环。以下旧排障记录保留作为历史依据，不能覆盖本节或最新指定源码。
+
 
 ## 一、项目背景
 
@@ -24,9 +37,9 @@ Git 根目录为 `/Users/walkmen/Documents/开发/FIIO/Fiio升级`，远端 `ori
 /Users/walkmen/Documents/开发/FIIO/Fiio升级/MageController   ← SwiftPM 项目（唯一工程）
 ├── Package.swift                    # swift-tools 5.10, macOS 15+, 两个 executableTarget
 ├── Sources/
-│   ├── MageKit/                     # 协议 + HID + 拦截 + 虚拟键盘（稳定，近期未动）
+│   ├── MageKit/                     # 协议 + HID + 拦截 + 虚拟键盘（有 FF-178/181 后续修复）
 │   │   ├── (VendorChannel / MageProtocol / HIDInterceptor / KeystrokeSimulator …)
-│   ├── mage-helper/                 # root 守护进程（加载 HID 拦截驱动）
+│   ├── mage-helper/                 # 集成版为当前用户 helper；旧 main 可能仍有历史启动路径
 │   └── MageControllerApp/
 │       ├── App.swift                # ControllerVM(单例) + StatusBarController + MenuContent + TopDragHost
 │       └── MainWindowView.swift     # 主窗口 + 设备线稿 + NSView.beginManualDrag 扩展
@@ -34,12 +47,11 @@ Git 根目录为 `/Users/walkmen/Documents/开发/FIIO/Fiio升级`，远端 `ori
 └── dist/MAGE Controller.app         # 产物（菜单栏 App + mage-helper）
 ```
 
-关键命令：
+关键命令（以下启动需在隔离候选中、具备 GUI/设备权限且不干扰正式 App 时执行）：
 
 ```bash
 cd "/Users/walkmen/Documents/开发/FIIO/Fiio升级/MageController"
 bash scripts/build-app.sh                      # 构建+打包
-pkill -f "MAGE Controller"; sleep 1
 open -a "dist/MAGE Controller.app" --args --open-window   # 启动并开主窗口
 open -a "dist/MAGE Controller.app" --args --open-panel   # 启动并展开菜单栏面板（调试用）
 open -a "dist/MAGE Controller.app" --args --record-mic     # 开窗口+开始录制麦克风键绑定
@@ -53,13 +65,13 @@ open -a "dist/MAGE Controller.app" --args --record-mic     # 开窗口+开始录
 
 ### 1. 双进程结构
 - **MAGE Controller**（普通权限菜单栏 App）：UI + 厂商通道控制 + 虚拟键盘发送。
-- **mage-helper**（root 守护进程，须 `sudo`）：用 IOKit HID 拦截独占设备按键。App 内「按键拦截」开关通过 osascript 提权启动/关闭。重启 App 后守护进程不自动拉起（状态不持久，待改进项）。
+- **mage-helper**：FF-179 集成版通过当前用户 Process 管理 bundled helper，持久化开关偏好并反馈失败；旧 root/osascript 路径是历史。已有 root helper 冲突需要识别并阻止并行启动，不擅自停止用户进程。
 
 ### 2. 设备事实（已实测确认）
 - 厂商控制走 HID vendor channel（非音频 UAC 控制面）。
 - **上 / 下 / Menu 三个物理键发同一个键码（playPause）** → 改一个同步三；左=volumeDown、右=volumeUp 独立；麦克风键独立。
 - 麦克风键物理按下会切换设备端麦克风静音状态，App 收到 push 后执行配置的动作（快捷键/命令/屏蔽），可选 `micAutoUnmute` 自动恢复设备麦克风。
-- 7.1 切换后设备会重新 USB 枚举，需延迟 ~6s 重连轮询。
+- 7.1 切换涉及 USB 重枚举，需等待实际设备身份与状态恢复；历史约 6s 不是恢复保证。FF-183 的关闭路径仍有未解决设备恢复问题。
 - 灯：音乐灯=HiFi 模式、游戏灯+7.1 灯=游戏模式、麦克风灯（蓝）。`ledLight` 命令控总开关。采样率切换由 macOS 音频侧 `AudioControl` 设置，触发灯色联动（设备行为）。
 - 设备可能离线：日志常见 `VendorChannel.Error error 2`（未插设备，属正常）。
 
@@ -76,7 +88,7 @@ SwiftUI `MenuBarExtra(.window)` 的面板由系统托管，内容固定尺寸会
 - 弃用 `performDrag(with:)`（对合成鼠标事件不生效）。
 - 现方案：① `TopDragHost`（透明 NSTitlebarAccessoryViewController 配件视图，盖住顶部 28pt，红绿灯区域 hitTest 放行）② `WindowConfigurator.DragLayer`（ZStack 底层 NSView，内容缝隙/留白处接住点击）；两者都调 `NSView.beginManualDrag(with:)`——进入 `nextEvent(matching:)` 循环手动跟随 `NSEvent.mouseLocation` 位移。真实鼠标下方向正确（用户实测）。
 - 顶部 `Text("MAGE Controller")` 已加 `.allowsHitTesting(false)`，否则满宽文本挡住顶部拖动。
-- 窗口结构：frame 800×696 = 28pt 标题栏 + 28pt 配件拖区 + 640pt 内容（MainWindowView 800×640）。
+- 历史窗口 frame 800×696 曾导致顶部空白；FF-180 在后续集成中修为实际 800×640（safeAreaRegions/ignoresSafeArea）。验收记录需说明实际版本与窗口尺寸。
 
 ### 5. 界面定稿要点（用户逐像素验收过）
 - 液态玻璃 = **无背景色**，透明窗口透出桌面（`isOpaque=false`、clear background、`.ultraThinMaterial` 内容），参考 Apple Liquid Glass 文档。
@@ -84,14 +96,14 @@ SwiftUI `MenuBarExtra(.window)` 的面板由系统托管，内容固定尺寸会
 - 设备线稿 `DeviceLineArt`：Canvas 550×300 viewBox（=55×30mm 实机比例），十字键严格任天堂比例（臂宽 1/3，160 单位路径等比缩 150，**无中心圆**）、M 键、麦克风键、4 颗 LED 等距对称（心 x=213.1/251.2/289.3/327.4，y=238.1，直径 21.4/16.7/16.7/21.4）。设备上除 ▲▼ 和 M 外不放文字。
 - 图标只用 SF Symbol（用户讨厌 FontAwesome 及自制几何图标）。麦克风图标 = 系统 `mic.fill`（键帽 14pt；机身线稿用 overlay `Image(systemName:"mic.fill")` font 11，位置 (186,74) 点，按 231×126 固定框换算，**改框尺寸要同步改**）。
 - 录制态用黄色呼吸点（`RecordingDot`），不要红色圆钮（用户觉得像录音）。
-- 菜单栏面板布局：状态头 → 指示灯/麦克风/7.1 开关行（SF Symbol 图标）→ 采样率芯片 → 打开主界面/按键拦截/退出。
+- 菜单栏面板保留状态、指示灯/麦克风/7.1、采样率、打开主界面/退出；FF-174 已将按键拦截迁入主窗口右栏底部，最终以集成版为准。
 
 ### 6. 按键映射 UI
 - 6 行：左/右/上/下/Menu/麦克风；点胶囊即录制（`KeyRecorder.shared`，需窗口为 key window）。
 - 右键胶囊菜单：录制新快捷键 / 运行命令…（shell）/ 屏蔽 / 恢复默认。
 - 支持把键盘组合键录入为绑定（用户的核心诉求：录入组合键 → 按 MAGE 键直接发出该组合键）。
 
-## 四、当前状态（全部截图验证过）
+## 四、15:09 历史状态快照（保留溯源，不代表当前验收）
 
 已完成：
 - [x] 菜单栏面板（NSPanel 方案，264×316，开合/外部点击关闭正常）
@@ -101,9 +113,9 @@ SwiftUI `MenuBarExtra(.window)` 的面板由系统托管，内容固定尺寸会
 - [x] 采样率芯片点击真实切换设备（44.1/48/88.2 实测）
 - [x] 设备连接状态/灯/麦克风/7.1 状态轮询显示
 
-设备当前已连接（用户真机使用中）。左键绑定已被用户改成 ⌘⇧F，右键 ⌘G。
+历史记录曾观测设备连接，左键 ⌘⇧F、右键 ⌘G。当前设备/用户配置必须重新只读核实；FF-182 不读取或修改用户正式配置。
 
-待办 / 可改进：
+当时的待办 / 可改进（非当前执行清单；非 root 与窗口等后续结果见上方）：
 - [ ] **重启 App 用新构建验证**（按键拦截修复已编译进 dist，但当前运行的还是旧进程；重启后让用户在菜单栏面板点「按键拦截」→ 授权 → 按设备键验证左/右键不再调音量）
 - [ ] **去掉提权对话框**（重大发现：见下「按键拦截排障」第 2 条，macOS 15 非 root 也能 seize，可直接普通权限启动 mage-helper，UX 大改善）
 - [ ] 面板开合只有用户手点验证过图标点击（系统状态栏不接受外部模拟点击，无法自动化验证）
@@ -111,7 +123,7 @@ SwiftUI `MenuBarExtra(.window)` 的面板由系统托管，内容固定尺寸会
 - [ ] 后续可能做 Web/更完整软件外壳；软件形态（SwiftUI AppKit 混合）对集成友好
 - [ ] 灯色实测确认（设备灯色随采样率变化的具体规则，说明书未明确，需真机观察）
 
-## 三点五、按键拦截排障记录（2026-11-13，重要）
+## 三点五、历史按键拦截排障记录（早于 FF-179，保留原因证据）
 
 用户反馈：面板里打开「按键拦截」后，按设备左/右键**依然能调音量**（拦截未生效）。
 
@@ -129,14 +141,14 @@ mage-helper seize 设备期间，**App 自己的 VendorChannel 会离线**（日
 ## 五、协作约定（用户偏好）
 
 - 中文沟通；用户会**逐像素挑 UI 问题**，交付前必须自己放大截图核对，不要让用户指出低级错误（原话："不要让我帮你检查低级错误"）。
-- 用户说"你自己操作"时用 Kimi CUA（`cua.getApp('com.fiio.mage-controller')`）自行点击/拖动/截图验证；`screencapture` 可全屏截图（Retina 2x，AppKit 原点在左下）。
+- 历史使用 Kimi CUA；现在按环境可用且已授权的 GUI 工具操作。历史接口为 Kimi CUA（`cua.getApp('com.fiio.mage-controller')`）自行点击/拖动/截图验证；`screencapture` 可全屏截图（Retina 2x，AppKit 原点在左下）。
 - CUA 细节：`listWindows` 只列主窗口；NSPanel 面板不列出，用 `--open-panel` + 全屏截图验证。坐标点击需 `window_id + screenshot_id`（图像 2x 像素，不做 Retina 换算）。CUA 合成 drag 会报告 `user_intervened`（用户真鼠标在动）。
 - 不满意时用户会说"你自己看/重新检查"——先自查截图再回复。
 - 方向键相关：用户重视十字键视觉比例（任天堂 1/3 臂宽），上下总长 = 左右总长。
 
-## 六、验证清单（改动后照此自检）
+## 六、按改动范围选择的验证清单（需同版、隔离和当前可用工具）
 
-1. `bash scripts/build-app.sh` 无 error（warning 可接受，现有的是 onChange deprecated）。
+1. `bash scripts/build-app.sh` 无 error（记录真实 warning；后续集成报告含 AudioControl.swift 既有 warning）。
 2. 启动 `--open-window`，CUA 截主窗口：布局/图标/灯位/绑定显示与改动前一致（除非改动点本身）。
 3. 启动 `--open-panel` + `screencapture`，确认面板尺寸（日志 `菜单面板尺寸`）与渲染。
 4. 涉及拖动：在顶部条和面板间隙各拖一次，确认窗口位移且按钮点击仍正常（点采样率芯片看状态栏数值变化最快）。
