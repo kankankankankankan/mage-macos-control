@@ -90,7 +90,13 @@ public final class VendorChannel {
     /// 查找并打开设备（seize=true 独占，需要 root；普通模式可与 FIIO Control 网页共存）
     @discardableResult
     public func open(seize: Bool = false) throws -> Bool {
-        close()
+        try transactionQueue.sync {
+            closeSerialized()
+            return try openSerialized(seize: seize)
+        }
+    }
+
+    private func openSerialized(seize: Bool) throws -> Bool {
         let m = IOHIDManagerCreate(kCFAllocatorDefault, 0)
         IOHIDManagerSetDeviceMatching(m, VendorChannel.deviceMatching as CFDictionary)
 
@@ -117,18 +123,18 @@ public final class VendorChannel {
 
         let opts: IOOptionBits = seize ? IOOptionBits(kIOHIDOptionsTypeSeizeDevice) : 0
         guard IOHIDManagerOpen(m, 0) == kIOReturnSuccess else {
-            close()
+            closeSerialized()
             throw Error.openFailed(kIOReturnError)
         }
         let found = (IOHIDManagerCopyDevices(m) as? Set<IOHIDDevice> ?? [])
         guard let dev = found.first else {
-            close()
+            closeSerialized()
             return false
         }
 
         let r = IOHIDDeviceOpen(dev, opts)
         guard r == kIOReturnSuccess else {
-            close()
+            closeSerialized()
             throw Error.openFailed(r)
         }
 
@@ -230,21 +236,25 @@ public final class VendorChannel {
 
     public func close() {
         transactionQueue.sync {
-            lock.lock()
-            let state = ioState
-            ioState = nil
-            let dev = device
-            device = nil
-            pid = 0
-            pending = nil
-            retiredSequences.removeAll()
-            lock.unlock()
-            state?.requestStop()
-            if let dev { IOHIDDeviceClose(dev, 0) }
-            if let m = manager { IOHIDManagerClose(m, 0) }
-            manager = nil
-            ioThread = nil
+            closeSerialized()
         }
+    }
+
+    private func closeSerialized() {
+        lock.lock()
+        let state = ioState
+        ioState = nil
+        let dev = device
+        device = nil
+        pid = 0
+        pending = nil
+        retiredSequences.removeAll()
+        lock.unlock()
+        state?.requestStop()
+        if let dev { IOHIDDeviceClose(dev, 0) }
+        if let m = manager { IOHIDManagerClose(m, 0) }
+        manager = nil
+        ioThread = nil
     }
 
     private func clearPending(sequence: UInt16) {
