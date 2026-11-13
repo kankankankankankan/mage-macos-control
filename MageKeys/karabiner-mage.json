@@ -1,0 +1,58 @@
+{
+  "title": "FiiO MAGE：屏蔽/自定义按键",
+  "rules": [
+    {
+      "description": "MAGE：屏蔽方向键触发的音量、Menu 触发播放暂停、麦克风键",
+      "manipulators": [
+        {
+          "type": "basic",
+          "conditions": [
+            { "type": "device_if", "vendor_id": 8321, "product_id": 0, "description": "TODO: product_id 换成实际 PID" }
+          ],
+          "from": { "consumer_key_code": "volume_increment" },
+          "to": [ { "key_code": "vk_none" } ]
+        },
+        {
+          "type": "basic",
+          "conditions": [
+            { "type": "device_if", "vendor_id": 8321, "product_id": 0, "description": "TODO: product_id 换成实际 PID" }
+          ],
+          "from": { "consumer_key_code": "volume_decrement" },
+          "to": [ { "key_code": "vk_none" } ]
+        },
+        {
+          "type": "basic",
+          "conditions": [
+            { "type": "device_if", "vendor_id": 8321, "product_id": 0, "description": "TODO: product_id 换成实际 PID" }
+          ],
+          "from": { "consumer_key_code": "play_or_pause" },
+          "to": [ { "key_code": "vk_none" } ]
+        },
+        {
+          "type": "basic",
+          "conditions": [
+            { "type": "device_if", "vendor_id": 8321, "product_id": 0, "description": "TODO: product_id 换成实际 PID" }
+          ],
+          "from": { "consumer_key_code": "mic_mute" },
+          "to": [ { "key_code": "vk_none" } ]
+        },
+        {
+          "type": "basic",
+          "conditions": [
+            { "type": "device_if", "vendor_id": 8321, "product_id": 0, "description": "TODO: product_id 换成实际 PID" }
+          ],
+          "from": { "key_code": "left_arrow" },
+          "to": [ { "key_code": "vk_none" } ]
+        },
+        {
+          "type": "basic",
+          "conditions": [
+            { "type": "device_if", "vendor_id": 8321, "product_id": 0, "description": "TODO: product_id 换成实际 PID" }
+          ],
+          "from": { "key_code": "right_arrow" },
+          "to": [ { "key_code": "vk_none" } ]
+        }
+      ]
+    }
+  ]
+}

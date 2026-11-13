@@ -1,0 +1,12 @@
+version: v2
+title: MAGE Controller · 界面设计 4 风格
+size: [1280, 720]
+customFonts:
+  - family: JetBrains Mono
+    src: "https://fonts.googleapis.com/css2?family=JetBrains+Mono"
+pages:
+  - pages/1_native.page
+  - pages/2_dark_pro.page
+  - pages/3_gaming.page
+  - pages/4_minimal.page
+  - pages/5_liquid_glass.page

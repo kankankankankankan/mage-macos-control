@@ -1,0 +1,631 @@
+pageType: content
+background: {type: solid, color: "#0C0D0F"}
+elements:
+  - elementId: p3-grid-v1
+    elementType: shape
+    bounds: [80, 0, 1, 720]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-v2
+    elementType: shape
+    bounds: [160, 0, 1, 720]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-v3
+    elementType: shape
+    bounds: [240, 0, 1, 720]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-v4
+    elementType: shape
+    bounds: [320, 0, 1, 720]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-v5
+    elementType: shape
+    bounds: [400, 0, 1, 720]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-v6
+    elementType: shape
+    bounds: [480, 0, 1, 720]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-v7
+    elementType: shape
+    bounds: [560, 0, 1, 720]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-v8
+    elementType: shape
+    bounds: [640, 0, 1, 720]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-v9
+    elementType: shape
+    bounds: [720, 0, 1, 720]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-v10
+    elementType: shape
+    bounds: [800, 0, 1, 720]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-v11
+    elementType: shape
+    bounds: [880, 0, 1, 720]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-v12
+    elementType: shape
+    bounds: [960, 0, 1, 720]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-v13
+    elementType: shape
+    bounds: [1040, 0, 1, 720]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-v14
+    elementType: shape
+    bounds: [1120, 0, 1, 720]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-v15
+    elementType: shape
+    bounds: [1200, 0, 1, 720]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-h1
+    elementType: shape
+    bounds: [0, 80, 1280, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-h2
+    elementType: shape
+    bounds: [0, 160, 1280, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-h3
+    elementType: shape
+    bounds: [0, 240, 1280, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-h4
+    elementType: shape
+    bounds: [0, 320, 1280, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-h5
+    elementType: shape
+    bounds: [0, 400, 1280, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-h6
+    elementType: shape
+    bounds: [0, 480, 1280, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-h7
+    elementType: shape
+    bounds: [0, 560, 1280, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-grid-h8
+    elementType: shape
+    bounds: [0, 640, 1280, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF06"}
+  - elementId: p3-style
+    elementType: text
+    bounds: [48, 16, 600, 28]
+    content: {fontSize: 20, bold: true, color: "#F5F5F7", wrap: false, text: 风格 03 · 游戏装备风}
+  - elementId: p3-desc
+    elementType: text
+    bounds: [48, 46, 700, 18]
+    content: {fontSize: 12, color: "#8A8F98", wrap: false, text: 设备可视化 + 键盘键帽语言 · 橙红强调 · 电竞外设气质}
+  - elementId: p3-window
+    elementType: shape
+    bounds: [220, 70, 840, 580]
+    shapeName: roundRect
+    adjustments: [2000]
+    fill: {type: solid, color: "#131417"}
+    border: {style: solid, width: 1, color: "#2C2F34"}
+    shadow: {blur: 40, color: "#00000080", offset: [0, 16]}
+  - elementId: p3-tl1
+    elementType: shape
+    bounds: [236, 92, 12, 12]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FF5F57"}
+  - elementId: p3-tl2
+    elementType: shape
+    bounds: [254, 92, 12, 12]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FEBC2E"}
+  - elementId: p3-tl3
+    elementType: shape
+    bounds: [272, 92, 12, 12]
+    shapeName: ellipse
+    fill: {type: solid, color: "#28C840"}
+  - elementId: p3-title
+    elementType: text
+    bounds: [220, 88, 840, 20]
+    content: {fontSize: 11, color: "#FF6A3D", letterSpacing: 3, align: [center, middle], wrap: false, text: MAGE CONTROLLER}
+  - elementId: p3-mode-tag
+    elementType: text
+    bounds: [924, 92, 112, 16]
+    content: {fontSize: 11, color: "#FF6A3D", align: [right, top], wrap: false, text: GAME MODE}
+  - elementId: p3-panel
+    elementType: shape
+    bounds: [244, 140, 320, 380]
+    shapeName: roundRect
+    adjustments: [4000]
+    fill: {type: solid, color: "#191B1E"}
+    border: {style: solid, width: 1, color: "#2C2F34"}
+  - elementId: p3-panel-label
+    elementType: text
+    bounds: [264, 158, 280, 14]
+    content: {fontSize: 10, color: "#FF6A3D", letterSpacing: 3, wrap: false, text: DEVICE 设备状态}
+  - elementId: p3-device
+    elementType: shape
+    bounds: [294, 190, 220, 120]
+    shapeName: custom
+    viewBox: [550, 300]
+    path: "M40,0 H510 Q550,0 550,40 V260 Q550,300 510,300 H40 Q0,300 0,260 V40 Q0,0 40,0 Z"
+    fill: {type: solid, color: "#FFFFFF05"}
+    border: {style: solid, width: 1.5, color: "#8A929D"}
+  - elementId: p3-device-bezel
+    elementType: shape
+    bounds: [300, 196, 208, 108]
+    shapeName: custom
+    viewBox: [550, 300]
+    path: "M60,20 H490 Q522,20 522,52 V248 Q522,280 490,280 H60 Q28,280 28,248 V52 Q28,20 60,20 Z"
+    border: {style: solid, width: 1, color: "#454C56"}
+  - elementId: p3-dpad
+    elementType: shape
+    bounds: [323, 218, 60, 60]
+    shapeName: custom
+    viewBox: [160, 160]
+    path: "M54,0 H106 V54 H160 V106 H106 V160 H54 V106 H0 V54 H54 Z"
+    fill: {type: solid, color: "#FFFFFF08"}
+    border: {style: solid, width: 1.5, color: "#9AA1AB"}
+  - elementId: p3-dpad-up
+    elementType: text
+    bounds: [347, 223, 12, 9]
+    content: {fontSize: 6.5, color: "#9AA1AB", align: [center, middle], wrap: false, text: "▲"}
+  - elementId: p3-dpad-down
+    elementType: text
+    bounds: [347, 263, 12, 9]
+    content: {fontSize: 6.5, color: "#9AA1AB", align: [center, middle], wrap: false, text: "▼"}
+  - elementId: p3-dpad-center
+    elementType: shape
+    bounds: [342, 237, 22, 22]
+    shapeName: ellipse
+    border: {style: solid, width: 1, color: "#6E7681"}
+  - elementId: p3-btn1
+    elementType: shape
+    bounds: [414, 226, 26, 26]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFFFFF08"}
+    border: {style: solid, width: 1.5, color: "#9AA1AB"}
+  - elementId: p3-btn1-t
+    elementType: text
+    bounds: [414, 226, 26, 26]
+    content: {fontSize: 9, color: "#9AA1AB", align: [center, middle], wrap: false, text: M}
+  - elementId: p3-btn2
+    elementType: shape
+    bounds: [458, 248, 26, 26]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFFFFF08"}
+    border: {style: solid, width: 1.5, color: "#9AA1AB"}
+  - elementId: p3-btn2-icon
+    elementType: icon
+    bounds: [466, 256, 10, 10]
+    iconName: "fas:microphone"
+    fill: {type: solid, color: "#9AA1AB"}
+  - elementId: p3-ledstrip
+    elementType: shape
+    bounds: [372, 272, 60, 25]
+    shapeName: roundRect
+    adjustments: [30000]
+    border: {style: solid, width: 1, color: "#6E7681"}
+  - elementId: p3-led1-i
+    elementType: icon
+    bounds: [376, 276, 7, 7]
+    iconName: "fas:music"
+    fill: {type: solid, color: "#6E7681"}
+  - elementId: p3-led2-i
+    elementType: icon
+    bounds: [391, 276, 7, 7]
+    iconName: "fas:gamepad"
+    fill: {type: solid, color: "#6E7681"}
+  - elementId: p3-led3-t
+    elementType: text
+    bounds: [402, 277, 13, 7]
+    content: {fontSize: 6, color: "#6E7681", align: [center, middle], wrap: false, text: "7.1"}
+  - elementId: p3-led4-i
+    elementType: icon
+    bounds: [420, 276, 7, 7]
+    iconName: "fas:microphone"
+    fill: {type: solid, color: "#6E7681"}
+  - elementId: p3-led1-halo
+    elementType: shape
+    bounds: [369, 278, 20, 20]
+    shapeName: ellipse
+    fill:
+      type: gradient
+      gradientType: radial
+      stops:
+        - {position: 0, color: "#6EC1FF73"}
+        - {position: 1, color: "#6EC1FF00"}
+  - elementId: p3-led1
+    elementType: shape
+    bounds: [375, 284, 8, 8]
+    shapeName: ellipse
+    fill: {type: solid, color: "#6EC1FF"}
+    shadow: {blur: 10, color: "#6EC1FFCC", offset: [0, 0]}
+  - elementId: p3-led2
+    elementType: shape
+    bounds: [391, 285, 6, 6]
+    shapeName: ellipse
+    fill: {type: solid, color: "#3A3E45"}
+  - elementId: p3-led3
+    elementType: shape
+    bounds: [406, 285, 6, 6]
+    shapeName: ellipse
+    fill: {type: solid, color: "#3A3E45"}
+  - elementId: p3-led4-halo
+    elementType: shape
+    bounds: [413, 278, 20, 20]
+    shapeName: ellipse
+    fill:
+      type: gradient
+      gradientType: radial
+      stops:
+        - {position: 0, color: "#6EC1FF73"}
+        - {position: 1, color: "#6EC1FF00"}
+  - elementId: p3-led4
+    elementType: shape
+    bounds: [419, 284, 8, 8]
+    shapeName: ellipse
+    fill: {type: solid, color: "#6EC1FF"}
+    shadow: {blur: 10, color: "#6EC1FFCC", offset: [0, 0]}
+  - elementId: p3-leg1-i
+    elementType: icon
+    bounds: [294, 324, 9, 9]
+    iconName: "fas:music"
+    fill: {type: solid, color: "#8A8F98"}
+  - elementId: p3-leg1-t
+    elementType: text
+    bounds: [306, 323, 36, 11]
+    content: {fontSize: 8, color: "#8A8F98", wrap: false, text: HiFi}
+  - elementId: p3-leg2-i
+    elementType: icon
+    bounds: [349, 324, 9, 9]
+    iconName: "fas:gamepad"
+    fill: {type: solid, color: "#8A8F98"}
+  - elementId: p3-leg2-t
+    elementType: text
+    bounds: [361, 323, 36, 11]
+    content: {fontSize: 8, color: "#8A8F98", wrap: false, text: 游戏}
+  - elementId: p3-leg3-t
+    elementType: text
+    bounds: [404, 323, 55, 11]
+    content: {fontSize: 8, color: "#8A8F98", align: [center, top], wrap: false, text: "7.1"}
+  - elementId: p3-leg4-i
+    elementType: icon
+    bounds: [459, 324, 9, 9]
+    iconName: "fas:microphone"
+    fill: {type: solid, color: "#8A8F98"}
+  - elementId: p3-leg4-t
+    elementType: text
+    bounds: [471, 323, 36, 11]
+    content: {fontSize: 8, color: "#8A8F98", wrap: false, text: MIC}
+  - elementId: p3-mode1
+    elementType: shape
+    bounds: [284, 344, 112, 42]
+    shapeName: roundRect
+    adjustments: [12000]
+    fill: {type: solid, color: "#FF6A3D"}
+  - elementId: p3-mode1-t
+    elementType: text
+    bounds: [284, 344, 112, 42]
+    content: {fontSize: 12, bold: true, color: "#131417", align: [center, middle], wrap: false, text: HiFi 音乐}
+  - elementId: p3-mode2
+    elementType: shape
+    bounds: [408, 344, 112, 42]
+    shapeName: roundRect
+    adjustments: [12000]
+    border: {style: solid, width: 1, color: "#FF6A3D"}
+  - elementId: p3-mode2-t
+    elementType: text
+    bounds: [408, 344, 112, 42]
+    content: {fontSize: 12, color: "#FF6A3D", align: [center, middle], wrap: false, text: 游戏模式}
+  - elementId: p3-rate-label
+    elementType: text
+    bounds: [284, 396, 240, 12]
+    content: {fontSize: 9, color: "#6E6E76", letterSpacing: 2, wrap: false, text: SAMPLE RATE}
+  - elementId: p3-chip1
+    elementType: shape
+    bounds: [284, 414, 72, 26]
+    shapeName: roundRect
+    adjustments: [20000]
+    border: {style: solid, width: 1, color: "#FF6A3D"}
+  - elementId: p3-chip1-t
+    elementType: text
+    bounds: [284, 414, 72, 26]
+    content: {fontSize: 11, color: "#FF6A3D", align: [center, middle], wrap: false, text: 48k}
+  - elementId: p3-chip2
+    elementType: shape
+    bounds: [364, 414, 72, 26]
+    shapeName: roundRect
+    adjustments: [20000]
+    border: {style: solid, width: 1, color: "#3A3E45"}
+  - elementId: p3-chip2-t
+    elementType: text
+    bounds: [364, 414, 72, 26]
+    content: {fontSize: 11, color: "#8A8F98", align: [center, middle], wrap: false, text: 96k}
+  - elementId: p3-chip3
+    elementType: shape
+    bounds: [444, 414, 72, 26]
+    shapeName: roundRect
+    adjustments: [20000]
+    border: {style: solid, width: 1, color: "#3A3E45"}
+  - elementId: p3-chip3-t
+    elementType: text
+    bounds: [444, 414, 72, 26]
+    content: {fontSize: 11, color: "#8A8F98", align: [center, middle], wrap: false, text: 192k}
+  - elementId: p3-panel-status
+    elementType: text
+    bounds: [284, 462, 240, 14]
+    content: {fontSize: 11, color: "#8A8F98", wrap: false, text: 已连接 · 48.0 kHz · HiFi}
+  - elementId: p3-panel-note
+    elementType: text
+    bounds: [264, 492, 280, 14]
+    content: {fontSize: 10, color: "#6E6E76", wrap: false, text: 麦克风键：按一下静音，再按恢复}
+  - elementId: p3-r-label
+    elementType: text
+    bounds: [596, 142, 440, 14]
+    content: {fontSize: 10, color: "#FF6A3D", letterSpacing: 3, wrap: false, text: KEY BINDINGS 按键映射}
+  - elementId: p3-r1-cap
+    elementType: shape
+    bounds: [596, 170, 64, 44]
+    shapeName: roundRect
+    adjustments: [14000]
+    fill: {type: solid, color: "#23262B"}
+    border: {style: solid, width: 1, color: "#3A3E45"}
+  - elementId: p3-r1-sym
+    elementType: text
+    bounds: [596, 170, 64, 44]
+    content: {fontSize: 18, color: "#F5F5F7", align: [center, middle], wrap: false, text: "↑"}
+  - elementId: p3-r1-name
+    elementType: text
+    bounds: [676, 183, 180, 18]
+    content: {fontSize: 13, color: "#F5F5F7", wrap: false, text: 上键 · 音量+}
+  - elementId: p3-r1-act
+    elementType: shape
+    bounds: [596, 222, 220, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#191B1E"}
+    border: {style: solid, width: 1, color: "#3A3E45"}
+  - elementId: p3-r1-actt
+    elementType: text
+    bounds: [596, 226, 220, 18]
+    content: {fontSize: 11, color: "#EDEDEF", align: [center, top], wrap: false, text: ⌘G · 模拟快捷键}
+  - elementId: p3-r1-rec
+    elementType: shape
+    bounds: [936, 222, 100, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#FF6A3D"}
+  - elementId: p3-r1-rect
+    elementType: text
+    bounds: [936, 226, 100, 18]
+    content: {fontSize: 11, bold: true, color: "#131417", align: [center, top], wrap: false, text: 录制}
+  - elementId: p3-r2-cap
+    elementType: shape
+    bounds: [596, 250, 64, 44]
+    shapeName: roundRect
+    adjustments: [14000]
+    fill: {type: solid, color: "#23262B"}
+    border: {style: solid, width: 1, color: "#3A3E45"}
+  - elementId: p3-r2-sym
+    elementType: text
+    bounds: [596, 250, 64, 44]
+    content: {fontSize: 18, color: "#F5F5F7", align: [center, middle], wrap: false, text: "↓"}
+  - elementId: p3-r2-name
+    elementType: text
+    bounds: [676, 263, 180, 18]
+    content: {fontSize: 13, color: "#F5F5F7", wrap: false, text: 下键 · 音量−}
+  - elementId: p3-r2-act
+    elementType: shape
+    bounds: [596, 302, 220, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#191B1E"}
+    border: {style: solid, width: 1, color: "#3A3E45"}
+  - elementId: p3-r2-actt
+    elementType: text
+    bounds: [596, 306, 220, 18]
+    content: {fontSize: 11, color: "#8A8F98", align: [center, top], wrap: false, text: 已屏蔽}
+  - elementId: p3-r2-rec
+    elementType: shape
+    bounds: [936, 302, 100, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#FF6A3D"}
+  - elementId: p3-r2-rect
+    elementType: text
+    bounds: [936, 306, 100, 18]
+    content: {fontSize: 11, bold: true, color: "#131417", align: [center, top], wrap: false, text: 录制}
+  - elementId: p3-r3-cap
+    elementType: shape
+    bounds: [596, 330, 64, 44]
+    shapeName: roundRect
+    adjustments: [14000]
+    fill: {type: solid, color: "#23262B"}
+    border: {style: solid, width: 1, color: "#3A3E45"}
+  - elementId: p3-r3-sym
+    elementType: text
+    bounds: [596, 330, 64, 44]
+    content: {fontSize: 16, color: "#F5F5F7", align: [center, middle], wrap: false, text: M}
+  - elementId: p3-r3-name
+    elementType: text
+    bounds: [676, 343, 180, 18]
+    content: {fontSize: 13, color: "#F5F5F7", wrap: false, text: Menu 键}
+  - elementId: p3-r3-act
+    elementType: shape
+    bounds: [596, 382, 220, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#191B1E"}
+    border: {style: solid, width: 1, color: "#3A3E45"}
+  - elementId: p3-r3-actt
+    elementType: text
+    bounds: [596, 386, 220, 18]
+    content: {fontSize: 11, color: "#8A8F98", align: [center, top], wrap: false, text: 已屏蔽}
+  - elementId: p3-r3-rec
+    elementType: shape
+    bounds: [936, 382, 100, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#FF6A3D"}
+  - elementId: p3-r3-rect
+    elementType: text
+    bounds: [936, 386, 100, 18]
+    content: {fontSize: 11, bold: true, color: "#131417", align: [center, top], wrap: false, text: 录制}
+  - elementId: p3-r4-cap
+    elementType: shape
+    bounds: [596, 410, 64, 44]
+    shapeName: roundRect
+    adjustments: [14000]
+    fill: {type: solid, color: "#23262B"}
+    border: {style: solid, width: 1, color: "#3A3E45"}
+  - elementId: p3-r4-icon
+    elementType: icon
+    bounds: [620, 424, 16, 16]
+    iconName: "fas:microphone"
+    fill: {type: solid, color: "#F5F5F7"}
+  - elementId: p3-r4-name
+    elementType: text
+    bounds: [676, 423, 180, 18]
+    content: {fontSize: 13, color: "#F5F5F7", wrap: false, text: 麦克风键}
+  - elementId: p3-r4-act
+    elementType: shape
+    bounds: [596, 462, 220, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#191B1E"}
+    border: {style: solid, width: 1, color: "#3A3E45"}
+  - elementId: p3-r4-actt
+    elementType: text
+    bounds: [596, 466, 220, 18]
+    content: {fontSize: 11, color: "#EDEDEF", align: [center, top], wrap: false, text: F13 · 模拟快捷键}
+  - elementId: p3-r4-rec
+    elementType: shape
+    bounds: [936, 462, 100, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#FF6A3D"}
+  - elementId: p3-r4-rect
+    elementType: text
+    bounds: [936, 466, 100, 18]
+    content: {fontSize: 11, bold: true, color: "#131417", align: [center, top], wrap: false, text: 录制}
+  - elementId: p3-t1
+    elementType: shape
+    bounds: [244, 536, 250, 88]
+    shapeName: roundRect
+    adjustments: [8000]
+    fill: {type: solid, color: "#191B1E"}
+    border: {style: solid, width: 1, color: "#2C2F34"}
+  - elementId: p3-t1-icon
+    elementType: icon
+    bounds: [264, 556, 16, 16]
+    iconName: "fas:lightbulb"
+    fill: {type: solid, color: "#E5C07B"}
+  - elementId: p3-t1-label
+    elementType: text
+    bounds: [288, 554, 120, 18]
+    content: {fontSize: 13, color: "#F5F5F7", wrap: false, text: 指示灯}
+  - elementId: p3-t1-bg
+    elementType: shape
+    bounds: [430, 556, 44, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#FF6A3D"}
+  - elementId: p3-t1-knob
+    elementType: shape
+    bounds: [450, 558, 22, 22]
+    shapeName: ellipse
+    fill: {type: solid, color: "#131417"}
+  - elementId: p3-t1-sub
+    elementType: text
+    bounds: [264, 586, 210, 12]
+    content: {fontSize: 10, color: "#6E6E76", wrap: false, text: 浅蓝 · 跟随采样率}
+  - elementId: p3-t2
+    elementType: shape
+    bounds: [515, 536, 250, 88]
+    shapeName: roundRect
+    adjustments: [8000]
+    fill: {type: solid, color: "#191B1E"}
+    border: {style: solid, width: 1, color: "#2C2F34"}
+  - elementId: p3-t2-icon
+    elementType: icon
+    bounds: [535, 556, 16, 16]
+    iconName: "fas:microphone"
+    fill: {type: solid, color: "#F5F5F7"}
+  - elementId: p3-t2-label
+    elementType: text
+    bounds: [559, 554, 120, 18]
+    content: {fontSize: 13, color: "#F5F5F7", wrap: false, text: 麦克风}
+  - elementId: p3-t2-bg
+    elementType: shape
+    bounds: [701, 556, 44, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#FF6A3D"}
+  - elementId: p3-t2-knob
+    elementType: shape
+    bounds: [721, 558, 22, 22]
+    shapeName: ellipse
+    fill: {type: solid, color: "#131417"}
+  - elementId: p3-t2-sub
+    elementType: text
+    bounds: [535, 586, 210, 12]
+    content: {fontSize: 10, color: "#6E6E76", wrap: false, text: 设备键一键静音}
+  - elementId: p3-t3
+    elementType: shape
+    bounds: [786, 536, 250, 88]
+    shapeName: roundRect
+    adjustments: [8000]
+    fill: {type: solid, color: "#191B1E"}
+    border: {style: solid, width: 1, color: "#2C2F34"}
+  - elementId: p3-t3-icon
+    elementType: icon
+    bounds: [806, 556, 16, 16]
+    iconName: "fas:headphones"
+    fill: {type: solid, color: "#F5F5F7"}
+  - elementId: p3-t3-label
+    elementType: text
+    bounds: [830, 554, 120, 18]
+    content: {fontSize: 13, color: "#F5F5F7", wrap: false, text: 7.1 环绕}
+  - elementId: p3-t3-bg
+    elementType: shape
+    bounds: [972, 556, 44, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#2E2E33"}
+  - elementId: p3-t3-knob
+    elementType: shape
+    bounds: [974, 558, 22, 22]
+    shapeName: ellipse
+    fill: {type: solid, color: "#6E6E76"}
+  - elementId: p3-t3-sub
+    elementType: text
+    bounds: [806, 586, 220, 12]
+    content: {fontSize: 10, color: "#6E6E76", wrap: false, text: 切换会重新枚举设备}
+  - elementId: p3-bullets
+    elementType: text
+    bounds: [48, 672, 1150, 16]
+    content: {fontSize: 11, color: "#8A8F98", wrap: false, text: 简化逻辑：① 设备四灯可视化，状态不用猜　② 音乐/游戏模式一键切换　③ 键帽直读绑定，录制一步完成}

@@ -1,0 +1,203 @@
+pageType: content
+background: {type: solid, color: "#F3EFE9"}
+elements:
+  - elementId: p4-style
+    elementType: text
+    bounds: [48, 16, 600, 28]
+    content: {fontSize: 20, bold: true, color: "#1A1A1A", wrap: false, text: 风格 04 · 极简速控}
+  - elementId: p4-desc
+    elementType: text
+    bounds: [48, 46, 700, 18]
+    content: {fontSize: 12, color: "#8A827A", wrap: false, text: 类 One Switch 紧凑面板 · 大开关大字号 · 零学习成本}
+  - elementId: p4-window
+    elementType: shape
+    bounds: [330, 90, 620, 560]
+    shapeName: roundRect
+    adjustments: [3000]
+    fill: {type: solid, color: "#FFFFFF"}
+    shadow: {blur: 40, color: "#3A2F1F24", offset: [0, 18]}
+  - elementId: p4-tl1
+    elementType: shape
+    bounds: [346, 112, 12, 12]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FF5F57"}
+  - elementId: p4-tl2
+    elementType: shape
+    bounds: [364, 112, 12, 12]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FEBC2E"}
+  - elementId: p4-tl3
+    elementType: shape
+    bounds: [382, 112, 12, 12]
+    shapeName: ellipse
+    fill: {type: solid, color: "#28C840"}
+  - elementId: p4-title
+    elementType: text
+    bounds: [330, 108, 620, 20]
+    content: {fontSize: 11, color: "#1A1A1A", letterSpacing: 5, align: [center, middle], wrap: false, text: M A G E}
+  - elementId: p4-status
+    elementType: text
+    bounds: [330, 144, 620, 16]
+    content: {fontSize: 12, color: "#8A827A", align: [center, top], wrap: false, text: 已连接 · 48.0 kHz · HiFi 模式}
+  - elementId: p4-s1-icon
+    elementType: icon
+    bounds: [370, 206, 20, 20]
+    iconName: "fas:lightbulb"
+    fill: {type: solid, color: "#1A1A1A"}
+  - elementId: p4-s1-label
+    elementType: text
+    bounds: [402, 204, 220, 22]
+    content: {fontSize: 16, color: "#1A1A1A", wrap: false, text: 指示灯}
+  - elementId: p4-s1-sub
+    elementType: text
+    bounds: [402, 227, 280, 12]
+    content: {fontSize: 10, color: "#A39B90", wrap: false, text: HiFi 浅蓝 · 跟随采样率}
+  - elementId: p4-s1-bg
+    elementType: shape
+    bounds: [878, 202, 52, 32]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#2FBF71"}
+  - elementId: p4-s1-knob
+    elementType: shape
+    bounds: [900, 204, 28, 28]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFFFFF"}
+  - elementId: p4-s2-icon
+    elementType: icon
+    bounds: [370, 274, 20, 20]
+    iconName: "fas:microphone"
+    fill: {type: solid, color: "#1A1A1A"}
+  - elementId: p4-s2-label
+    elementType: text
+    bounds: [402, 272, 220, 22]
+    content: {fontSize: 16, color: "#1A1A1A", wrap: false, text: 麦克风}
+  - elementId: p4-s2-sub
+    elementType: text
+    bounds: [402, 295, 280, 12]
+    content: {fontSize: 10, color: "#A39B90", wrap: false, text: 设备键一键静音 / 恢复}
+  - elementId: p4-s2-bg
+    elementType: shape
+    bounds: [878, 270, 52, 32]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#2FBF71"}
+  - elementId: p4-s2-knob
+    elementType: shape
+    bounds: [900, 272, 28, 28]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFFFFF"}
+  - elementId: p4-s3-icon
+    elementType: icon
+    bounds: [370, 342, 20, 20]
+    iconName: "fas:headphones"
+    fill: {type: solid, color: "#1A1A1A"}
+  - elementId: p4-s3-label
+    elementType: text
+    bounds: [402, 340, 220, 22]
+    content: {fontSize: 16, color: "#1A1A1A", wrap: false, text: 7.1 环绕}
+  - elementId: p4-s3-sub
+    elementType: text
+    bounds: [402, 363, 300, 12]
+    content: {fontSize: 10, color: "#A39B90", wrap: false, text: 游戏专用 · 切换会重新枚举设备}
+  - elementId: p4-s3-bg
+    elementType: shape
+    bounds: [878, 338, 52, 32]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#E8E2D8"}
+  - elementId: p4-s3-knob
+    elementType: shape
+    bounds: [881, 340, 28, 28]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFFFFF"}
+  - elementId: p4-div
+    elementType: shape
+    bounds: [370, 404, 540, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#EDE8DF"}
+  - elementId: p4-sec
+    elementType: text
+    bounds: [370, 420, 300, 14]
+    content: {fontSize: 11, color: "#A39B90", letterSpacing: 3, wrap: false, text: 按键映射}
+  - elementId: p4-k1
+    elementType: text
+    bounds: [370, 452, 130, 20]
+    content: {fontSize: 13, color: "#1A1A1A", wrap: false, text: 上键}
+  - elementId: p4-k1-cap
+    elementType: shape
+    bounds: [510, 448, 250, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#F5F1E9"}
+  - elementId: p4-k1-capt
+    elementType: text
+    bounds: [510, 452, 250, 18]
+    content: {fontSize: 12, color: "#1A1A1A", align: [center, top], wrap: false, text: ⌘G · 模拟快捷键}
+  - elementId: p4-k1-rec
+    elementType: text
+    bounds: [800, 452, 60, 18]
+    content: {fontSize: 12, color: "#1A1A1A", align: [right, top], wrap: false, text: 录制}
+  - elementId: p4-k2
+    elementType: text
+    bounds: [370, 494, 130, 20]
+    content: {fontSize: 13, color: "#1A1A1A", wrap: false, text: 下键}
+  - elementId: p4-k2-cap
+    elementType: shape
+    bounds: [510, 490, 250, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#F5F1E9"}
+    border: {style: solid, width: 1, color: "#D97B29"}
+  - elementId: p4-k2-capt
+    elementType: text
+    bounds: [510, 494, 250, 18]
+    content: {fontSize: 12, color: "#D97B29", align: [center, top], wrap: false, text: 请按下键盘…}
+  - elementId: p4-k2-rec
+    elementType: text
+    bounds: [800, 494, 60, 18]
+    content: {fontSize: 12, color: "#A39B90", align: [right, top], wrap: false, text: 录制中}
+  - elementId: p4-k3
+    elementType: text
+    bounds: [370, 536, 130, 20]
+    content: {fontSize: 13, color: "#1A1A1A", wrap: false, text: Menu 键}
+  - elementId: p4-k3-cap
+    elementType: shape
+    bounds: [510, 532, 250, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#F5F1E9"}
+  - elementId: p4-k3-capt
+    elementType: text
+    bounds: [510, 536, 250, 18]
+    content: {fontSize: 12, color: "#8A827A", align: [center, top], wrap: false, text: 屏蔽}
+  - elementId: p4-k3-rec
+    elementType: text
+    bounds: [800, 536, 60, 18]
+    content: {fontSize: 12, color: "#1A1A1A", align: [right, top], wrap: false, text: 录制}
+  - elementId: p4-k4
+    elementType: text
+    bounds: [370, 578, 130, 20]
+    content: {fontSize: 13, color: "#1A1A1A", wrap: false, text: 麦克风键}
+  - elementId: p4-k4-cap
+    elementType: shape
+    bounds: [510, 574, 250, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#F5F1E9"}
+  - elementId: p4-k4-capt
+    elementType: text
+    bounds: [510, 578, 250, 18]
+    content: {fontSize: 12, color: "#1A1A1A", align: [center, top], wrap: false, text: F13 · 模拟快捷键}
+  - elementId: p4-k4-rec
+    elementType: text
+    bounds: [800, 578, 60, 18]
+    content: {fontSize: 12, color: "#1A1A1A", align: [right, top], wrap: false, text: 录制}
+  - elementId: p4-footer
+    elementType: text
+    bounds: [370, 614, 540, 16]
+    content: {fontSize: 10, color: "#A39B90", align: [center, top], wrap: false, text: 按键拦截已启用 · 开机自动接管已开启}
+  - elementId: p4-bullets
+    elementType: text
+    bounds: [48, 672, 1150, 16]
+    content: {fontSize: 11, color: "#8A827A", wrap: false, text: 简化逻辑：① 只保留开关与映射两件事　② 字号加大，一臂距离可读　③ 录制状态直接显示在按键行上}

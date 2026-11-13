@@ -1,0 +1,324 @@
+pageType: content
+background: {type: solid, color: "#0A0A0C"}
+elements:
+  - elementId: p2-style
+    elementType: text
+    bounds: [48, 16, 600, 28]
+    content: {fontSize: 20, bold: true, color: "#F2F2F4", wrap: false, text: 风格 02 · 深色专业台}
+  - elementId: p2-desc
+    elementType: text
+    bounds: [48, 46, 700, 18]
+    content: {fontSize: 12, color: "#8A8F98", wrap: false, text: 类 Linear 高密度工作台 · 单色琥珀强调 · 等宽字体读数}
+  - elementId: p2-window
+    elementType: shape
+    bounds: [220, 70, 840, 580]
+    shapeName: roundRect
+    adjustments: [2000]
+    fill: {type: solid, color: "#151518"}
+    border: {style: solid, width: 1, color: "#26262B"}
+    shadow: {blur: 40, color: "#00000080", offset: [0, 16]}
+  - elementId: p2-tl1
+    elementType: shape
+    bounds: [236, 92, 12, 12]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FF5F57"}
+  - elementId: p2-tl2
+    elementType: shape
+    bounds: [254, 92, 12, 12]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FEBC2E"}
+  - elementId: p2-tl3
+    elementType: shape
+    bounds: [272, 92, 12, 12]
+    shapeName: ellipse
+    fill: {type: solid, color: "#28C840"}
+  - elementId: p2-title
+    elementType: text
+    bounds: [220, 88, 840, 20]
+    content: {fontSize: 11, color: "#9A9AA3", letterSpacing: 3, align: [center, middle], wrap: false, text: MAGE CONTROLLER}
+  - elementId: p2-dot
+    elementType: shape
+    bounds: [952, 96, 7, 7]
+    shapeName: ellipse
+    fill: {type: solid, color: "#30D158"}
+  - elementId: p2-status
+    elementType: text
+    bounds: [964, 92, 80, 16]
+    content: {fontSize: 11, color: "#30D158", wrap: false, text: 已连接}
+  - elementId: p2-l-label1
+    elementType: text
+    bounds: [244, 142, 336, 14]
+    content: {fontSize: 10, color: "#6E6E76", letterSpacing: 2, wrap: false, text: 信号 SIGNAL}
+  - elementId: p2-readout
+    elementType: text
+    bounds: [244, 162, 140, 50]
+    content: {fontSize: 42, fontFamily: JetBrains Mono, color: "#F2F2F4", wrap: false, text: "48.0"}
+  - elementId: p2-khz
+    elementType: text
+    bounds: [388, 192, 50, 20]
+    content: {fontSize: 15, color: "#9A9AA3", wrap: false, text: kHz}
+  - elementId: p2-sub
+    elementType: text
+    bounds: [244, 222, 336, 16]
+    content: {fontSize: 12, color: "#9A9AA3", wrap: false, text: HiFi 模式 · 指示灯 浅蓝}
+  - elementId: p2-div1
+    elementType: shape
+    bounds: [244, 252, 336, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#26262B"}
+  - elementId: p2-l-label2
+    elementType: text
+    bounds: [244, 270, 336, 14]
+    content: {fontSize: 10, color: "#6E6E76", letterSpacing: 2, wrap: false, text: 硬件开关 HARDWARE}
+  - elementId: p2-sw1
+    elementType: text
+    bounds: [244, 305, 220, 18]
+    content: {fontSize: 13, color: "#EDEDEF", wrap: false, text: 指示灯}
+  - elementId: p2-sw1v
+    elementType: text
+    bounds: [420, 306, 110, 16]
+    content: {fontSize: 11, color: "#6E6E76", align: [right, top], wrap: false, text: 浅蓝}
+  - elementId: p2-sw1-bg
+    elementType: shape
+    bounds: [536, 301, 44, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#E5A458"}
+  - elementId: p2-sw1-knob
+    elementType: shape
+    bounds: [556, 303, 22, 22]
+    shapeName: ellipse
+    fill: {type: solid, color: "#151518"}
+  - elementId: p2-sw2
+    elementType: text
+    bounds: [244, 349, 220, 18]
+    content: {fontSize: 13, color: "#EDEDEF", wrap: false, text: 麦克风}
+  - elementId: p2-sw2v
+    elementType: text
+    bounds: [420, 350, 110, 16]
+    content: {fontSize: 11, color: "#6E6E76", align: [right, top], wrap: false, text: 开启}
+  - elementId: p2-sw2-bg
+    elementType: shape
+    bounds: [536, 345, 44, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#E5A458"}
+  - elementId: p2-sw2-knob
+    elementType: shape
+    bounds: [556, 347, 22, 22]
+    shapeName: ellipse
+    fill: {type: solid, color: "#151518"}
+  - elementId: p2-sw3
+    elementType: text
+    bounds: [244, 393, 220, 18]
+    content: {fontSize: 13, color: "#EDEDEF", wrap: false, text: 7.1 环绕}
+  - elementId: p2-sw3v
+    elementType: text
+    bounds: [420, 394, 110, 16]
+    content: {fontSize: 11, color: "#6E6E76", align: [right, top], wrap: false, text: 关闭}
+  - elementId: p2-sw3-bg
+    elementType: shape
+    bounds: [536, 389, 44, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#2E2E33"}
+  - elementId: p2-sw3-knob
+    elementType: shape
+    bounds: [538, 391, 22, 22]
+    shapeName: ellipse
+    fill: {type: solid, color: "#6E6E76"}
+  - elementId: p2-sw4
+    elementType: text
+    bounds: [244, 437, 220, 18]
+    content: {fontSize: 13, color: "#EDEDEF", wrap: false, text: 按键拦截}
+  - elementId: p2-sw4v
+    elementType: text
+    bounds: [420, 438, 110, 16]
+    content: {fontSize: 11, color: "#6E6E76", align: [right, top], wrap: false, text: 已启用}
+  - elementId: p2-sw4-bg
+    elementType: shape
+    bounds: [536, 433, 44, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#E5A458"}
+  - elementId: p2-sw4-knob
+    elementType: shape
+    bounds: [556, 435, 22, 22]
+    shapeName: ellipse
+    fill: {type: solid, color: "#151518"}
+  - elementId: p2-div2
+    elementType: shape
+    bounds: [244, 478, 336, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#26262B"}
+  - elementId: p2-foot
+    elementType: text
+    bounds: [244, 492, 336, 48]
+    content:
+      fontSize: 10
+      color: "#6E6E76"
+      lineHeight: 1.6
+      text: 采样率联动灯色：≤48 kHz 浅蓝，>48 kHz 绿；7.1 切换会重新枚举设备
+  - elementId: p2-r-label
+    elementType: text
+    bounds: [620, 142, 416, 14]
+    content: {fontSize: 10, color: "#6E6E76", letterSpacing: 2, wrap: false, text: 按键映射 KEY MAPPING}
+  - elementId: p2-r-hl1
+    elementType: shape
+    bounds: [620, 248, 416, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#212126"}
+  - elementId: p2-r-hl2
+    elementType: shape
+    bounds: [620, 332, 416, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#212126"}
+  - elementId: p2-r-hl3
+    elementType: shape
+    bounds: [620, 416, 416, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#212126"}
+  - elementId: p2-r1-name
+    elementType: text
+    bounds: [620, 182, 300, 18]
+    content: {fontSize: 13, bold: true, color: "#EDEDEF", wrap: false, text: 上键 · 音量+}
+  - elementId: p2-r1-cap
+    elementType: shape
+    bounds: [620, 212, 140, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#1E1E22"}
+    border: {style: solid, width: 1, color: "#33333A"}
+  - elementId: p2-r1-capt
+    elementType: text
+    bounds: [620, 216, 140, 18]
+    content: {fontSize: 12, fontFamily: JetBrains Mono, color: "#E5A458", align: [center, top], wrap: false, text: ⌘G}
+  - elementId: p2-r1-act
+    elementType: text
+    bounds: [772, 217, 140, 16]
+    content: {fontSize: 10, color: "#6E6E76", wrap: false, text: 模拟快捷键}
+  - elementId: p2-r1-rec
+    elementType: shape
+    bounds: [936, 212, 100, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    border: {style: solid, width: 1, color: "#E5A458"}
+  - elementId: p2-r1-rect
+    elementType: text
+    bounds: [936, 216, 100, 18]
+    content: {fontSize: 11, color: "#E5A458", align: [center, top], wrap: false, text: 录制}
+  - elementId: p2-r2-name
+    elementType: text
+    bounds: [620, 266, 300, 18]
+    content: {fontSize: 13, bold: true, color: "#EDEDEF", wrap: false, text: 下键 · 音量−}
+  - elementId: p2-r2-cap
+    elementType: shape
+    bounds: [620, 296, 140, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#1E1E22"}
+    border: {style: solid, width: 1, color: "#33333A"}
+  - elementId: p2-r2-capt
+    elementType: text
+    bounds: [620, 300, 140, 18]
+    content: {fontSize: 12, color: "#9A9AA3", align: [center, top], wrap: false, text: 屏蔽}
+  - elementId: p2-r2-act
+    elementType: text
+    bounds: [772, 301, 140, 16]
+    content: {fontSize: 10, color: "#6E6E76", wrap: false, text: 默认拦截}
+  - elementId: p2-r2-rec
+    elementType: shape
+    bounds: [936, 296, 100, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    border: {style: solid, width: 1, color: "#E5A458"}
+  - elementId: p2-r2-rect
+    elementType: text
+    bounds: [936, 300, 100, 18]
+    content: {fontSize: 11, color: "#E5A458", align: [center, top], wrap: false, text: 录制}
+  - elementId: p2-r3-name
+    elementType: text
+    bounds: [620, 350, 300, 18]
+    content: {fontSize: 13, bold: true, color: "#EDEDEF", wrap: false, text: Menu 键}
+  - elementId: p2-r3-cap
+    elementType: shape
+    bounds: [620, 380, 140, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#1E1E22"}
+    border: {style: solid, width: 1, color: "#33333A"}
+  - elementId: p2-r3-capt
+    elementType: text
+    bounds: [620, 384, 140, 18]
+    content: {fontSize: 12, color: "#9A9AA3", align: [center, top], wrap: false, text: 屏蔽}
+  - elementId: p2-r3-act
+    elementType: text
+    bounds: [772, 385, 140, 16]
+    content: {fontSize: 10, color: "#6E6E76", wrap: false, text: 默认拦截}
+  - elementId: p2-r3-rec
+    elementType: shape
+    bounds: [936, 380, 100, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    border: {style: solid, width: 1, color: "#E5A458"}
+  - elementId: p2-r3-rect
+    elementType: text
+    bounds: [936, 384, 100, 18]
+    content: {fontSize: 11, color: "#E5A458", align: [center, top], wrap: false, text: 录制}
+  - elementId: p2-r4-name
+    elementType: text
+    bounds: [620, 434, 300, 18]
+    content: {fontSize: 13, bold: true, color: "#EDEDEF", wrap: false, text: 麦克风键}
+  - elementId: p2-r4-cap
+    elementType: shape
+    bounds: [620, 464, 140, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#1E1E22"}
+    border: {style: solid, width: 1, color: "#33333A"}
+  - elementId: p2-r4-capt
+    elementType: text
+    bounds: [620, 468, 140, 18]
+    content: {fontSize: 12, fontFamily: JetBrains Mono, color: "#E5A458", align: [center, top], wrap: false, text: F13}
+  - elementId: p2-r4-act
+    elementType: text
+    bounds: [772, 469, 140, 16]
+    content: {fontSize: 10, color: "#6E6E76", wrap: false, text: 模拟快捷键}
+  - elementId: p2-r4-rec
+    elementType: shape
+    bounds: [936, 464, 100, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    border: {style: solid, width: 1, color: "#E5A458"}
+  - elementId: p2-r4-rect
+    elementType: text
+    bounds: [936, 468, 100, 18]
+    content: {fontSize: 11, color: "#E5A458", align: [center, top], wrap: false, text: 录制}
+  - elementId: p2-div3
+    elementType: shape
+    bounds: [620, 518, 416, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#26262B"}
+  - elementId: p2-auto
+    elementType: text
+    bounds: [620, 532, 200, 18]
+    content: {fontSize: 13, color: "#EDEDEF", wrap: false, text: 开机自动接管}
+  - elementId: p2-auto-bg
+    elementType: shape
+    bounds: [992, 526, 44, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#E5A458"}
+  - elementId: p2-auto-knob
+    elementType: shape
+    bounds: [1012, 528, 22, 22]
+    shapeName: ellipse
+    fill: {type: solid, color: "#151518"}
+  - elementId: p2-hint
+    elementType: text
+    bounds: [620, 562, 416, 16]
+    content: {fontSize: 10, color: "#6E6E76", wrap: false, text: 点「录制」后直接按键盘，支持组合键，30 秒无操作自动取消}
+  - elementId: p2-bullets
+    elementType: text
+    bounds: [48, 672, 1150, 16]
+    content: {fontSize: 11, color: "#8A8F98", wrap: false, text: 简化逻辑：① 左状态右操作，视线不跨区　② 全局只有琥珀一种强调色　③ 提示压缩到底部一行}

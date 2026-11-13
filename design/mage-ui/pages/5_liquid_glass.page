@@ -1,0 +1,545 @@
+pageType: content
+background:
+  type: gradient
+  gradientType: linear
+  angle: 115
+  stops:
+    - {position: 0, color: "#F7A35C"}
+    - {position: 0.5, color: "#D9517B"}
+    - {position: 1, color: "#5B2E90"}
+elements:
+  - elementId: p5-blob1
+    elementType: shape
+    bounds: [-120, -140, 480, 400]
+    shapeName: ellipse
+    fill:
+      type: gradient
+      gradientType: radial
+      stops:
+        - {position: 0, color: "#FFFFFF59"}
+        - {position: 1, color: "#FFFFFF00"}
+  - elementId: p5-blob2
+    elementType: shape
+    bounds: [900, 420, 560, 420]
+    shapeName: ellipse
+    fill:
+      type: gradient
+      gradientType: radial
+      stops:
+        - {position: 0, color: "#FF5E6259"}
+        - {position: 1, color: "#FF5E6200"}
+  - elementId: p5-style
+    elementType: text
+    bounds: [48, 16, 600, 28]
+    content: {fontSize: 20, bold: true, color: "#FFFFFF", wrap: false, shadow: {blur: 6, color: "#00000040", offset: [0, 1]}, text: 风格 05 · 液态玻璃 × 设备可视化}
+  - elementId: p5-desc
+    elementType: text
+    bounds: [48, 46, 760, 18]
+    content: {fontSize: 12, color: "#FFFFFFD9", wrap: false, shadow: {blur: 6, color: "#00000040", offset: [0, 1]}, text: macOS 26 Liquid Glass · 机身线稿按 55×30mm 实机比例 · 灯位图标与机身印刷一致}
+  - elementId: p5-window
+    elementType: shape
+    bounds: [240, 80, 800, 560]
+    shapeName: roundRect
+    adjustments: [7000]
+    fill: {type: solid, color: "#1D1D1F59"}
+    border: {style: solid, width: 1, color: "#FFFFFF66"}
+    shadow: {blur: 40, color: "#00000059", offset: [0, 16]}
+  - elementId: p5-gloss
+    elementType: shape
+    bounds: [244, 84, 792, 64]
+    shapeName: roundRect
+    adjustments: [30000]
+    fill:
+      type: gradient
+      gradientType: linear
+      angle: 90
+      stops:
+        - {position: 0, color: "#FFFFFF59"}
+        - {position: 1, color: "#FFFFFF00"}
+  - elementId: p5-tl1
+    elementType: shape
+    bounds: [262, 104, 12, 12]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FF5F57"}
+  - elementId: p5-tl2
+    elementType: shape
+    bounds: [280, 104, 12, 12]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FEBC2E"}
+  - elementId: p5-tl3
+    elementType: shape
+    bounds: [298, 104, 12, 12]
+    shapeName: ellipse
+    fill: {type: solid, color: "#28C840"}
+  - elementId: p5-title
+    elementType: text
+    bounds: [240, 100, 800, 20]
+    content: {fontSize: 13, bold: true, color: "#FFFFFF", align: [center, middle], wrap: false, shadow: {blur: 6, color: "#00000040", offset: [0, 1]}, text: MAGE Controller}
+  - elementId: p5-status-cap
+    elementType: shape
+    bounds: [280, 152, 720, 48]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#00000040"}
+    border: {style: solid, width: 1, color: "#FFFFFF40"}
+  - elementId: p5-status-dot
+    elementType: shape
+    bounds: [306, 171, 10, 10]
+    shapeName: ellipse
+    fill: {type: solid, color: "#34C759"}
+  - elementId: p5-status
+    elementType: text
+    bounds: [326, 166, 380, 20]
+    content: {fontSize: 13, color: "#FFFFFF", wrap: false, shadow: {blur: 6, color: "#00000040", offset: [0, 1]}, text: MAGE 雪漫天 · 已连接}
+  - elementId: p5-status-r
+    elementType: text
+    bounds: [646, 167, 328, 18]
+    content: {fontSize: 12, color: "#FFFFFFD9", align: [right, top], wrap: false, shadow: {blur: 6, color: "#00000040", offset: [0, 1]}, text: 48.0 kHz · HiFi 模式}
+  - elementId: p5-panel
+    elementType: shape
+    bounds: [272, 216, 336, 404]
+    shapeName: roundRect
+    adjustments: [6000]
+    fill: {type: solid, color: "#00000033"}
+    border: {style: solid, width: 1, color: "#FFFFFF30"}
+  - elementId: p5-panel-label
+    elementType: text
+    bounds: [292, 232, 200, 12]
+    content: {fontSize: 10, color: "#FFFFFFB3", letterSpacing: 2, wrap: false, shadow: {blur: 6, color: "#00000040", offset: [0, 1]}, text: 设备状态 DEVICE}
+  - elementId: p5-device
+    elementType: shape
+    bounds: [322, 258, 231, 126]
+    shapeName: custom
+    viewBox: [550, 300]
+    path: "M35,0 H515 Q550,0 550,35 V265 Q550,300 515,300 H35 Q0,300 0,265 V35 Q0,0 35,0 Z"
+    fill: {type: solid, color: "#FFFFFF0D"}
+    border: {style: solid, width: 1.5, color: "#FFFFFFCC"}
+    shadow: {blur: 20, color: "#00000066", offset: [0, 8]}
+  - elementId: p5-device-bezel
+    elementType: shape
+    bounds: [327, 263, 221, 116]
+    shapeName: custom
+    viewBox: [550, 300]
+    path: "M37,15 H513 Q535,15 535,37 V263 Q535,285 513,285 H37 Q15,285 15,263 V37 Q15,15 37,15 Z"
+    border: {style: solid, width: 1, color: "#FFFFFF59"}
+  - elementId: p5-dpad
+    elementType: shape
+    bounds: [352, 287, 63, 63]
+    shapeName: custom
+    viewBox: [160, 160]
+    path: "M54,0 H106 V54 H160 V106 H106 V160 H54 V106 H0 V54 H54 Z"
+    fill: {type: solid, color: "#FFFFFF14"}
+    border: {style: solid, width: 1.5, color: "#FFFFFFCC"}
+  - elementId: p5-dpad-up
+    elementType: text
+    bounds: [377, 293, 13, 10]
+    content: {fontSize: 7, color: "#FFFFFFCC", align: [center, middle], wrap: false, text: "▲"}
+  - elementId: p5-dpad-down
+    elementType: text
+    bounds: [377, 334, 13, 10]
+    content: {fontSize: 7, color: "#FFFFFFCC", align: [center, middle], wrap: false, text: "▼"}
+  - elementId: p5-dpad-center
+    elementType: shape
+    bounds: [372, 307, 22, 22]
+    shapeName: ellipse
+    border: {style: solid, width: 1, color: "#FFFFFF99"}
+  - elementId: p5-btn1
+    elementType: shape
+    bounds: [448, 295, 28, 28]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFFFFF14"}
+    border: {style: solid, width: 1.5, color: "#FFFFFFCC"}
+  - elementId: p5-btn1-t
+    elementType: text
+    bounds: [448, 295, 28, 28]
+    content: {fontSize: 10, color: "#FFFFFFCC", align: [center, middle], wrap: false, text: M}
+  - elementId: p5-btn2
+    elementType: shape
+    bounds: [494, 318, 28, 28]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFFFFF14"}
+    border: {style: solid, width: 1.5, color: "#FFFFFFCC"}
+  - elementId: p5-btn2-mic-head
+    elementType: shape
+    bounds: [505.8, 326.8, 4.3, 6.6]
+    shapeName: roundRect
+    adjustments: [50000]
+    border: {style: solid, width: 1.2, color: "#FFFFFFCC"}
+  - elementId: p5-btn2-mic-arc
+    elementType: shape
+    bounds: [503.8, 330.6, 8.4, 5.0]
+    shapeName: custom
+    viewBox: [100, 100]
+    path: "M15,15 A35,35 0 0 0 85,15"
+    border: {style: solid, width: 1.2, color: "#FFFFFFCC"}
+  - elementId: p5-btn2-mic-stem
+    elementType: shape
+    bounds: [507.6, 335.1, 0.8, 1.6]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFFCC"}
+  - elementId: p5-btn2-mic-base
+    elementType: shape
+    bounds: [505.8, 336.8, 4.3, 1.0]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFFCC"}
+  - elementId: p5-ledstrip
+    elementType: shape
+    bounds: [404, 348, 63, 20]
+    shapeName: roundRect
+    adjustments: [30000]
+    fill: {type: solid, color: "#FFFFFF0D"}
+    border: {style: solid, width: 1, color: "#FFFFFF59"}
+  - elementId: p5-ledstrip-glow
+    elementType: shape
+    bounds: [405, 351, 61, 14]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill:
+      type: gradient
+      gradientType: linear
+      angle: 90
+      stops:
+        - {position: 0, color: "#FFFFFF00"}
+        - {position: 1, color: "#FFFFFF2E"}
+  - elementId: p5-led1-halo
+    elementType: shape
+    bounds: [397, 344, 27, 27]
+    shapeName: ellipse
+    fill:
+      type: gradient
+      gradientType: radial
+      stops:
+        - {position: 0, color: "#FFFFFF80"}
+        - {position: 1, color: "#FFFFFF00"}
+  - elementId: p5-led1
+    elementType: shape
+    bounds: [406, 353, 9, 9]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFFFFF"}
+    shadow: {blur: 10, color: "#FFFFFFCC", offset: [0, 0]}
+  - elementId: p5-led2
+    elementType: shape
+    bounds: [423, 354, 7, 7]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFFFFF33"}
+  - elementId: p5-led3
+    elementType: shape
+    bounds: [439, 354, 7, 7]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFFFFF33"}
+  - elementId: p5-led4-halo
+    elementType: shape
+    bounds: [445, 344, 27, 27]
+    shapeName: ellipse
+    fill:
+      type: gradient
+      gradientType: radial
+      stops:
+        - {position: 0, color: "#FFFFFF80"}
+        - {position: 1, color: "#FFFFFF00"}
+  - elementId: p5-led4
+    elementType: shape
+    bounds: [454, 353, 9, 9]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFFFFF"}
+    shadow: {blur: 10, color: "#FFFFFFCC", offset: [0, 0]}
+  - elementId: p5-leg1-d
+    elementType: shape
+    bounds: [346, 393, 6, 6]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFFFFF"}
+    shadow: {blur: 6, color: "#FFFFFF99", offset: [0, 0]}
+  - elementId: p5-leg1-t
+    elementType: text
+    bounds: [355, 391, 30, 11]
+    content: {fontSize: 8.5, color: "#FFFFFFCC", wrap: false, text: 音乐}
+  - elementId: p5-leg2-d
+    elementType: shape
+    bounds: [397, 393, 6, 6]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFFFFF40"}
+  - elementId: p5-leg2-t
+    elementType: text
+    bounds: [406, 391, 30, 11]
+    content: {fontSize: 8.5, color: "#FFFFFF99", wrap: false, text: 游戏}
+  - elementId: p5-leg3-d
+    elementType: shape
+    bounds: [448, 393, 6, 6]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFFFFF40"}
+  - elementId: p5-leg3-t
+    elementType: text
+    bounds: [457, 391, 20, 11]
+    content: {fontSize: 8.5, color: "#FFFFFF99", wrap: false, text: "7.1"}
+  - elementId: p5-leg4-d
+    elementType: shape
+    bounds: [489, 393, 6, 6]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFFFFF"}
+    shadow: {blur: 6, color: "#FFFFFF99", offset: [0, 0]}
+  - elementId: p5-leg4-t
+    elementType: text
+    bounds: [498, 391, 40, 11]
+    content: {fontSize: 8.5, color: "#FFFFFFCC", wrap: false, text: 麦克风}
+  - elementId: p5-mode1
+    elementType: shape
+    bounds: [292, 432, 142, 36]
+    shapeName: roundRect
+    adjustments: [16000]
+    fill: {type: solid, color: "#00000066"}
+    border: {style: solid, width: 1, color: "#FFFFFF99"}
+  - elementId: p5-mode1-t
+    elementType: text
+    bounds: [292, 432, 142, 36]
+    content: {fontSize: 12, bold: true, color: "#FFFFFF", align: [center, middle], wrap: false, text: HiFi 音乐}
+  - elementId: p5-mode2
+    elementType: shape
+    bounds: [446, 432, 142, 36]
+    shapeName: roundRect
+    adjustments: [16000]
+    fill: {type: solid, color: "#00000033"}
+    border: {style: solid, width: 1, color: "#FFFFFF30"}
+  - elementId: p5-mode2-t
+    elementType: text
+    bounds: [446, 432, 142, 36]
+    content: {fontSize: 12, color: "#FFFFFFB3", align: [center, middle], wrap: false, text: 游戏模式}
+  - elementId: p5-rate-label
+    elementType: text
+    bounds: [292, 490, 140, 10]
+    content: {fontSize: 8, color: "#FFFFFF99", letterSpacing: 2, wrap: false, text: SAMPLE RATE}
+  - elementId: p5-rate1
+    elementType: shape
+    bounds: [292, 506, 92, 26]
+    shapeName: roundRect
+    adjustments: [20000]
+    fill: {type: solid, color: "#00000040"}
+    border: {style: solid, width: 1, color: "#FFFFFF80"}
+  - elementId: p5-rate1-t
+    elementType: text
+    bounds: [292, 506, 92, 26]
+    content: {fontSize: 10, color: "#FFFFFF", align: [center, middle], wrap: false, text: 48.0 kHz}
+  - elementId: p5-rate2
+    elementType: shape
+    bounds: [392, 506, 92, 26]
+    shapeName: roundRect
+    adjustments: [20000]
+    fill: {type: solid, color: "#00000026"}
+    border: {style: solid, width: 1, color: "#FFFFFF33"}
+  - elementId: p5-rate2-t
+    elementType: text
+    bounds: [392, 506, 92, 26]
+    content: {fontSize: 10, color: "#FFFFFF99", align: [center, middle], wrap: false, text: 96 kHz}
+  - elementId: p5-rate3
+    elementType: shape
+    bounds: [492, 506, 92, 26]
+    shapeName: roundRect
+    adjustments: [20000]
+    fill: {type: solid, color: "#00000026"}
+    border: {style: solid, width: 1, color: "#FFFFFF33"}
+  - elementId: p5-rate3-t
+    elementType: text
+    bounds: [492, 506, 92, 26]
+    content: {fontSize: 10, color: "#FFFFFF99", align: [center, middle], wrap: false, text: 192 kHz}
+  - elementId: p5-note
+    elementType: text
+    bounds: [292, 552, 296, 12]
+    content: {fontSize: 9, color: "#FFFFFF99", wrap: false, text: 麦克风键：按一下静音，再按恢复}
+  - elementId: p5-r-label
+    elementType: text
+    bounds: [628, 232, 300, 12]
+    content: {fontSize: 10, color: "#FFFFFFB3", letterSpacing: 2, wrap: false, shadow: {blur: 6, color: "#00000040", offset: [0, 1]}, text: 按键映射 KEY BINDINGS}
+  - elementId: p5-r-group
+    elementType: shape
+    bounds: [628, 252, 380, 256]
+    shapeName: roundRect
+    adjustments: [8000]
+    fill: {type: solid, color: "#00000026"}
+    border: {style: solid, width: 1, color: "#FFFFFF30"}
+  - elementId: p5-r1-cap
+    elementType: shape
+    bounds: [644, 264, 40, 40]
+    shapeName: roundRect
+    adjustments: [16000]
+    fill: {type: solid, color: "#00000059"}
+    border: {style: solid, width: 1, color: "#FFFFFF66"}
+    shadow: {blur: 4, color: "#00000080", offset: [0, 2]}
+  - elementId: p5-r1-sym
+    elementType: text
+    bounds: [644, 264, 40, 40]
+    content: {fontSize: 16, color: "#FFFFFF", align: [center, middle], wrap: false, text: "↑"}
+  - elementId: p5-r1-name
+    elementType: text
+    bounds: [696, 275, 100, 18]
+    content: {fontSize: 13, color: "#FFFFFF", wrap: false, shadow: {blur: 6, color: "#00000040", offset: [0, 1]}, text: 上键}
+  - elementId: p5-r1-pill
+    elementType: shape
+    bounds: [788, 271, 140, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#00000059"}
+    border: {style: solid, width: 1.5, color: "#FFFFFFCC"}
+  - elementId: p5-r1-pulsdot
+    elementType: shape
+    bounds: [800, 281, 6, 6]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFD60A"}
+    shadow: {blur: 6, color: "#FFD60ACC", offset: [0, 0]}
+  - elementId: p5-r1-pillt
+    elementType: text
+    bounds: [788, 271, 140, 26]
+    content: {fontSize: 9.5, color: "#FFFFFF", align: [center, middle], wrap: false, text: 请按下新快捷键…}
+  - elementId: p5-r1-sep
+    elementType: shape
+    bounds: [644, 316, 348, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF14"}
+  - elementId: p5-r2-cap
+    elementType: shape
+    bounds: [644, 328, 40, 40]
+    shapeName: roundRect
+    adjustments: [16000]
+    fill: {type: solid, color: "#00000059"}
+    border: {style: solid, width: 1, color: "#FFFFFF66"}
+    shadow: {blur: 4, color: "#00000080", offset: [0, 2]}
+  - elementId: p5-r2-sym
+    elementType: text
+    bounds: [644, 328, 40, 40]
+    content: {fontSize: 16, color: "#FFFFFF", align: [center, middle], wrap: false, text: "↓"}
+  - elementId: p5-r2-name
+    elementType: text
+    bounds: [696, 339, 100, 18]
+    content: {fontSize: 13, color: "#FFFFFF", wrap: false, shadow: {blur: 6, color: "#00000040", offset: [0, 1]}, text: 下键}
+  - elementId: p5-r2-pill
+    elementType: shape
+    bounds: [788, 335, 140, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#00000040"}
+    border: {style: solid, width: 1, color: "#FFFFFF40"}
+  - elementId: p5-r2-pillt
+    elementType: text
+    bounds: [788, 335, 140, 26]
+    content: {fontSize: 9.5, color: "#FFFFFF99", align: [center, middle], wrap: false, text: 已屏蔽}
+  - elementId: p5-r2-sep
+    elementType: shape
+    bounds: [644, 380, 348, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF14"}
+  - elementId: p5-r3-cap
+    elementType: shape
+    bounds: [644, 392, 40, 40]
+    shapeName: roundRect
+    adjustments: [16000]
+    fill: {type: solid, color: "#00000059"}
+    border: {style: solid, width: 1, color: "#FFFFFF66"}
+    shadow: {blur: 4, color: "#00000080", offset: [0, 2]}
+  - elementId: p5-r3-sym
+    elementType: text
+    bounds: [644, 392, 40, 40]
+    content: {fontSize: 14, color: "#FFFFFF", align: [center, middle], wrap: false, text: "M"}
+  - elementId: p5-r3-name
+    elementType: text
+    bounds: [696, 403, 100, 18]
+    content: {fontSize: 13, color: "#FFFFFF", wrap: false, shadow: {blur: 6, color: "#00000040", offset: [0, 1]}, text: Menu 键}
+  - elementId: p5-r3-pill
+    elementType: shape
+    bounds: [788, 399, 140, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#00000040"}
+    border: {style: solid, width: 1, color: "#FFFFFF40"}
+  - elementId: p5-r3-pillt
+    elementType: text
+    bounds: [788, 399, 140, 26]
+    content: {fontSize: 9.5, color: "#FFFFFF99", align: [center, middle], wrap: false, text: 已屏蔽}
+  - elementId: p5-r3-sep
+    elementType: shape
+    bounds: [644, 444, 348, 1]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF14"}
+  - elementId: p5-r4-cap
+    elementType: shape
+    bounds: [644, 456, 40, 40]
+    shapeName: roundRect
+    adjustments: [16000]
+    fill: {type: solid, color: "#00000059"}
+    border: {style: solid, width: 1, color: "#FFFFFF66"}
+    shadow: {blur: 4, color: "#00000080", offset: [0, 2]}
+  - elementId: p5-r4-mic-head
+    elementType: shape
+    bounds: [661.5, 470.0, 5.0, 7.7]
+    shapeName: roundRect
+    adjustments: [50000]
+    border: {style: solid, width: 1.2, color: "#FFFFFF"}
+  - elementId: p5-r4-mic-arc
+    elementType: shape
+    bounds: [659.1, 474.3, 9.8, 5.9]
+    shapeName: custom
+    viewBox: [100, 100]
+    path: "M15,15 A35,35 0 0 0 85,15"
+    border: {style: solid, width: 1.2, color: "#FFFFFF"}
+  - elementId: p5-r4-mic-stem
+    elementType: shape
+    bounds: [663.5, 479.6, 1.0, 1.8]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF"}
+  - elementId: p5-r4-mic-base
+    elementType: shape
+    bounds: [661.5, 481.6, 5.0, 1.1]
+    shapeName: rect
+    fill: {type: solid, color: "#FFFFFF"}
+  - elementId: p5-r4-name
+    elementType: text
+    bounds: [696, 467, 100, 18]
+    content: {fontSize: 13, color: "#FFFFFF", wrap: false, shadow: {blur: 6, color: "#00000040", offset: [0, 1]}, text: 麦克风键}
+  - elementId: p5-r4-pill
+    elementType: shape
+    bounds: [788, 463, 140, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#00000040"}
+    border: {style: solid, width: 1, color: "#FFFFFF40"}
+  - elementId: p5-r4-pillt
+    elementType: text
+    bounds: [788, 463, 140, 26]
+    content: {fontSize: 9.5, color: "#FFFFFF", align: [center, middle], wrap: false, text: F13 · 模拟快捷键}
+  - elementId: p5-r-note
+    elementType: text
+    bounds: [628, 524, 380, 12]
+    content: {fontSize: 9, color: "#FFFFFFB3", wrap: false, text: 点击胶囊即可录入新快捷键}
+  - elementId: p5-r-note2
+    elementType: text
+    bounds: [628, 540, 380, 12]
+    content: {fontSize: 9, color: "#FFFFFF80", wrap: false, text: 上 / 下 / Menu 三键同码 · 绑定同步生效}
+  - elementId: p5-tg
+    elementType: shape
+    bounds: [628, 564, 380, 44]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#00000026"}
+    border: {style: solid, width: 1, color: "#FFFFFF30"}
+  - elementId: p5-tg-dot
+    elementType: shape
+    bounds: [648, 581, 10, 10]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFD60A"}
+    shadow: {blur: 8, color: "#FFD60ACC", offset: [0, 0]}
+  - elementId: p5-tg-t
+    elementType: text
+    bounds: [668, 579, 120, 16]
+    content: {fontSize: 12, color: "#FFFFFF", wrap: false, shadow: {blur: 6, color: "#00000040", offset: [0, 1]}, text: 指示灯}
+  - elementId: p5-tg-bg
+    elementType: shape
+    bounds: [944, 573, 44, 26]
+    shapeName: roundRect
+    adjustments: [50000]
+    fill: {type: solid, color: "#34C759CC"}
+  - elementId: p5-tg-knob
+    elementType: shape
+    bounds: [964, 575, 22, 22]
+    shapeName: ellipse
+    fill: {type: solid, color: "#FFFFFF"}
+  - elementId: p5-bullets
+    elementType: text
+    bounds: [48, 672, 1150, 16]
+    content: {fontSize: 11, color: "#FFFFFFD9", wrap: false, shadow: {blur: 6, color: "#00000040", offset: [0, 1]}, text: 简化逻辑：① 灯位图标与机身印刷一致，状态直读　② 线稿严格按 55×30mm 实机比例　③ 玻璃材质分层，绑定一屏完成}
