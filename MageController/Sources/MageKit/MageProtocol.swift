@@ -101,12 +101,15 @@ public enum MageProtocol {
         let bodyEnd = headIndex + 5 + len
         let body = Array(bytes[headIndex...bodyEnd])
         guard bytes[headIndex + 6 + len] == crc8(body) else { return nil }
+        let payload = len == 0
+            ? []
+            : Array(bytes[(headIndex + 6)..<(headIndex + 6 + len)])
         return Frame(
             head: bytes[headIndex],
             start: bytes[headIndex + 1],
             sequence: UInt16(bytes[headIndex + 2]) << 8 | UInt16(bytes[headIndex + 3]),
             cmd: bytes[headIndex + 4],
-            payload: Array(bytes[(headIndex + 6)...bodyEnd])
+            payload: payload
         )
     }
 

@@ -36,6 +36,14 @@ final class MageKitTests: XCTestCase {
         )
         XCTAssertEqual(MageProtocol.parseDetailedFrame(frame)?.payload, [0])
 
+        let emptyFrame = MageProtocol.makeFrame(
+            head: MageProtocol.getHead,
+            start: MageProtocol.getStart,
+            cmd: MageProtocol.Cmd.deviceName.rawValue,
+            payload: []
+        )
+        XCTAssertEqual(MageProtocol.parseDetailedFrame(emptyFrame)?.payload, [])
+
         var corrupted = frame
         corrupted[corrupted.count - 2] ^= 0xFF
         XCTAssertNil(MageProtocol.parseDetailedFrame(corrupted))

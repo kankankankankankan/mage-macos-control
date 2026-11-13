@@ -203,6 +203,7 @@ public final class VendorChannel {
         var result: [UInt8] = []
         var completed = false
         lock.lock()
+        retiredSequences.remove(sequence)
         pending = Pending(sequence: sequence, cmd: cmd.rawValue) {
             self.lock.lock()
             result = $0
