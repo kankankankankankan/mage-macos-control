@@ -47,6 +47,15 @@ final class ControllerVM: ObservableObject {
     private var configReadFailed = false
     private var lastHelperStatusDate: Date?
     private var transitionErrorMessage: String?
+    private let transitionInterlock = DeviceTransitionInterlock()
+
+    var deviceControlsEnabled: Bool {
+        connected && !deviceTransitioning && !helperTransitioning && !helperRunning
+    }
+
+    var helperControlEnabled: Bool {
+        !deviceTransitioning && !helperTransitioning
+    }
 
     private struct DeviceSnapshot: Sendable {
         let pid: Int
@@ -220,7 +229,9 @@ final class ControllerVM: ObservableObject {
                 fileLog("\(self.statusMessage) LED=\(led) MIC=\(mic) 7.1=\(s71)")
                 if !wasConnected { fileLog("设备上线") }
                 if let out = AudioControl.outputDevice() {
-                    self.sampleRate = AudioControl.currentSampleRate(device: out)
+                    if let rate = AudioControl.currentSampleRate(device: out) {
+                        self.sampleRate = rate
+                    }
                     self.availableRates = out.sampleRates
                 }
                 self.poll()
@@ -239,20 +250,22 @@ final class ControllerVM: ObservableObject {
     }
 
     func toggleLED() {
-        guard connected, !deviceTransitioning else { return }
+        guard deviceControlsEnabled else { return }
         runSet(.ledLight, value: ledOn ? 0 : 1, update: { self.ledOn = $0 == 1 })
     }
 
     func toggleMic() {
-        guard connected, !deviceTransitioning else { return }
+        guard deviceControlsEnabled else { return }
         runSet(.micSwitch, value: micOn ? 0 : 1, update: { self.micOn = $0 == 1 })
     }
 
     func toggle71() {
-        guard connected, !deviceTransitioning else { return }
+        guard deviceControlsEnabled,
+              transitionInterlock.begin(.deviceRestart) else { return }
         let targetState = !surround71
         let targetValue: UInt8 = targetState ? 1 : 0
-        let startedAt = Date()
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let deadline = RecoveryDeadline(start: startedAt, timeout: restartRecoveryTimeout)
 
         deviceTransitioning = true
         transitionErrorMessage = nil
@@ -269,30 +282,44 @@ final class ControllerVM: ObservableObject {
             do {
                 // The write only means the command reached the HID transport.
                 // Completion is established below through a fresh connection.
-                try channel.sendWithoutResponse(
+                try channel.sendRestartCommand(
                     cmd: .channel71Switch, payload: [targetValue], set: true
                 )
-                fileLog("7.1 命令已写入 target=\(targetValue)，关闭旧通道")
+                fileLog("7.1 命令已写入 target=\(targetValue)，旧通道已原子关闭")
             } catch {
-                channel.close()
                 let message = "7.1 命令发送失败，未自动重试：\(error.localizedDescription)"
                 Task { @MainActor in self?.finish71TransitionFailure(message) }
                 return
             }
 
-            channel.close()
-            let deadline = startedAt.addingTimeInterval(restartRecoveryTimeout)
             var lastObservation = "等待 USB/HID 重新枚举"
 
-            while Date() < deadline {
-                Thread.sleep(forTimeInterval: restartRetryDelay)
+            recoveryLoop: while let delay = deadline.boundedDuration(
+                at: ProcessInfo.processInfo.systemUptime,
+                maximum: restartRetryDelay
+            ) {
+                Thread.sleep(forTimeInterval: delay)
+                guard deadline.contains(ProcessInfo.processInfo.systemUptime) else { break }
                 do {
                     guard try channel.open() else {
                         lastObservation = "尚未发现 SNOWSKY MAGE"
                         continue
                     }
+                    // IOKit open/close are not cancellable. Never accept a
+                    // result after the deadline if one returns late.
+                    guard deadline.contains(ProcessInfo.processInfo.systemUptime) else {
+                        channel.close()
+                        break
+                    }
 
-                    let surround = try channel.send(cmd: .channel71Switch).first == 1
+                    guard let surroundTimeout = deadline.boundedDuration(
+                        at: ProcessInfo.processInfo.systemUptime,
+                        maximum: 1.5
+                    ) else { break recoveryLoop }
+                    let surround = try channel.send(
+                        cmd: .channel71Switch,
+                        timeout: surroundTimeout
+                    ).first == 1
                     let observedPID = channel.connectedPID
                     guard surround == targetState else {
                         lastObservation = "设备已出现，但 7.1 仍为 \(surround ? 1 : 0)"
@@ -301,14 +328,26 @@ final class ControllerVM: ObservableObject {
                         continue
                     }
 
-                    let led = try channel.send(cmd: .ledLight).first == 1
-                    let mic = try channel.send(cmd: .micSwitch).first == 1
-                    let audioDevices = AudioControl.mageDevices()
-                    guard let output = audioDevices.first(where: { $0.isOutput }),
-                          audioDevices.contains(where: { !$0.isOutput }) else {
+                    guard let ledTimeout = deadline.boundedDuration(
+                        at: ProcessInfo.processInfo.systemUptime,
+                        maximum: 1.5
+                    ) else { break recoveryLoop }
+                    let led = try channel.send(cmd: .ledLight, timeout: ledTimeout).first == 1
+                    guard let micTimeout = deadline.boundedDuration(
+                        at: ProcessInfo.processInfo.systemUptime,
+                        maximum: 1.5
+                    ) else { break recoveryLoop }
+                    let mic = try channel.send(cmd: .micSwitch, timeout: micTimeout).first == 1
+                    guard let audio = AudioControl.recoverySnapshot(
+                        from: AudioControl.mageDevices()
+                    ) else {
                         lastObservation = "HID 已恢复，音频输出或输入接口仍未就绪"
                         channel.close()
                         continue
+                    }
+                    guard deadline.contains(ProcessInfo.processInfo.systemUptime) else {
+                        channel.close()
+                        break
                     }
 
                     let snapshot = DeviceSnapshot(
@@ -316,10 +355,10 @@ final class ControllerVM: ObservableObject {
                         ledOn: led,
                         micOn: mic,
                         surround71: surround,
-                        sampleRate: AudioControl.currentSampleRate(device: output),
-                        availableRates: output.sampleRates
+                        sampleRate: audio.sampleRate,
+                        availableRates: audio.availableRates
                     )
-                    let elapsed = Date().timeIntervalSince(startedAt)
+                    let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
                     Task { @MainActor in
                         self?.finish71TransitionSuccess(snapshot, elapsed: elapsed)
                     }
@@ -339,6 +378,7 @@ final class ControllerVM: ObservableObject {
     private func finish71TransitionSuccess(_ snapshot: DeviceSnapshot, elapsed: TimeInterval) {
         guard deviceTransitioning else { return }
         deviceTransitioning = false
+        transitionInterlock.finish(.deviceRestart)
         transitionErrorMessage = nil
         connected = true
         pid = snapshot.pid
@@ -362,6 +402,7 @@ final class ControllerVM: ObservableObject {
     private func finish71TransitionFailure(_ message: String) {
         guard deviceTransitioning else { return }
         deviceTransitioning = false
+        transitionInterlock.finish(.deviceRestart)
         connected = false
         pid = 0
         transitionErrorMessage = message
@@ -371,6 +412,7 @@ final class ControllerVM: ObservableObject {
     }
 
     func setRate(_ rate: Double) {
+        guard deviceControlsEnabled else { return }
         guard let out = AudioControl.outputDevice() else { return }
         if AudioControl.setSampleRate(rate, device: out) {
             sampleRate = rate
@@ -463,12 +505,14 @@ final class ControllerVM: ObservableObject {
             return
         }
         guard helperEnabled && !helperRunning else { return }
+        guard beginHelperTransition() else { return }
         startHelper(persistPreference: false)
     }
 
     func toggleHelper() {
-        guard !helperTransitioning else { return }
+        guard helperControlEnabled else { return }
         refreshHelperState()
+        guard beginHelperTransition() else { return }
         if helperRunning {
             stopHelper(persistPreference: true)
         } else {
@@ -476,23 +520,37 @@ final class ControllerVM: ObservableObject {
         }
     }
 
+    private func beginHelperTransition() -> Bool {
+        guard !deviceTransitioning, !helperTransitioning,
+              transitionInterlock.begin(.helperLifecycle) else { return false }
+        helperTransitioning = true
+        return true
+    }
+
+    private func finishHelperTransition() {
+        helperTransitioning = false
+        transitionInterlock.finish(.helperLifecycle)
+    }
+
     private func startHelper(persistPreference: Bool) {
         guard let executableURL = helperURL, let options = helperOptions else {
             helperStatusMessage = "按键拦截启动失败：无法解析 helper 路径"
+            finishHelperTransition()
             return
         }
         guard FileManager.default.fileExists(atPath: executableURL.path),
               FileManager.default.isExecutableFile(atPath: executableURL.path) else {
             helperStatusMessage = "按键拦截启动失败：缺少可执行文件 Contents/MacOS/mage-helper"
+            finishHelperTransition()
             return
         }
 
         if let message = unmanagedHelperMessage() {
             helperStatusMessage = message
+            finishHelperTransition()
             return
         }
 
-        helperTransitioning = true
         helperStatusMessage = "正在启动按键拦截…"
         bindingStatusMessage = nil
         do {
@@ -527,7 +585,7 @@ final class ControllerVM: ObservableObject {
                     self.refreshHelperStatus()
                     // stopHelper owns requested transitions until PID/path verification confirms exit.
                     if !requested {
-                        self.helperTransitioning = false
+                        self.finishHelperTransition()
                         self.helperStopRequested = false
                         self.helperStatusMessage = "按键拦截异常退出（状态 \(terminated.terminationStatus)）"
                     }
@@ -550,7 +608,7 @@ final class ControllerVM: ObservableObject {
                     if self.helperStatusMessage?.hasPrefix("按键拦截异常退出") != true {
                         self.helperStatusMessage = "按键拦截启动失败：进程未保持运行"
                     }
-                    self.helperTransitioning = false
+                    self.finishHelperTransition()
                     return
                 }
                 if persistPreference && !self.setHelperEnabled(true) {
@@ -559,7 +617,7 @@ final class ControllerVM: ObservableObject {
                     return
                 }
                 self.helperRunning = true
-                self.helperTransitioning = false
+                self.finishHelperTransition()
                 self.helperStatusMessage = nil
                 fileLog("按键拦截已启动 PID=\(process.processIdentifier)，用户 UID=\(getuid())")
             }
@@ -567,7 +625,7 @@ final class ControllerVM: ObservableObject {
             helperProcess = nil
             try? helperLogHandle?.close()
             helperLogHandle = nil
-            helperTransitioning = false
+            finishHelperTransition()
             helperStatusMessage = "按键拦截启动失败：\(error.localizedDescription)"
         }
     }
@@ -593,24 +651,24 @@ final class ControllerVM: ObservableObject {
     private func stopHelper(persistPreference: Bool) {
         guard let executableURL = helperURL, let pid = controlledHelperPID() else {
             helperRunning = false
-            helperTransitioning = false
             if persistPreference {
                 applyStopPreference()
             } else {
                 helperStatusMessage = nil
             }
+            finishHelperTransition()
             return
         }
         guard HelperProcessInspector.matches(pid: pid, executableURL: executableURL) else {
             helperStatusMessage = "拒绝停止：helper 进程身份已变化"
+            finishHelperTransition()
             return
         }
 
-        helperTransitioning = true
         helperStopRequested = true
         helperStatusMessage = "正在停止按键拦截…"
         guard kill(pid, SIGTERM) == 0 else {
-            helperTransitioning = false
+            finishHelperTransition()
             helperStopRequested = false
             helperStatusMessage = "按键拦截停止失败：\(String(cString: strerror(errno)))"
             return
@@ -623,19 +681,19 @@ final class ControllerVM: ObservableObject {
                 if !HelperProcessInspector.matches(pid: pid, executableURL: executableURL) { break }
             }
             guard !HelperProcessInspector.matches(pid: pid, executableURL: executableURL) else {
-                self.helperTransitioning = false
+                self.finishHelperTransition()
                 self.helperStopRequested = false
                 self.helperStatusMessage = "按键拦截停止失败：进程未退出"
                 return
             }
             self.helperRunning = false
-            self.helperTransitioning = false
             self.helperStopRequested = false
             if persistPreference {
                 self.applyStopPreference()
             } else {
                 self.helperStatusMessage = nil
             }
+            self.finishHelperTransition()
             fileLog("按键拦截已停止 PID=\(pid)")
         }
     }
@@ -723,11 +781,11 @@ struct MenuContent: View {
             // 设备开关
             VStack(spacing: 2) {
                 menuToggle("指示灯", icon: "lightbulb.max.fill",
-                           isOn: vm.ledOn, enabled: vm.connected) { vm.toggleLED() }
+                           isOn: vm.ledOn, enabled: vm.deviceControlsEnabled) { vm.toggleLED() }
                 menuToggle("麦克风", icon: "mic.fill",
-                           isOn: vm.micOn, enabled: vm.connected) { vm.toggleMic() }
+                           isOn: vm.micOn, enabled: vm.deviceControlsEnabled) { vm.toggleMic() }
                 menuToggle("7.1 环绕", icon: "speaker.wave.3.fill",
-                           isOn: vm.surround71, enabled: vm.connected) { vm.toggle71() }
+                           isOn: vm.surround71, enabled: vm.deviceControlsEnabled) { vm.toggle71() }
             }
 
             Divider().padding(.vertical, 10)
@@ -754,7 +812,7 @@ struct MenuContent: View {
                             }
                     }
                     .buttonStyle(.plain)
-                    .disabled(!vm.connected)
+                    .disabled(!vm.deviceControlsEnabled)
                 }
             }
 

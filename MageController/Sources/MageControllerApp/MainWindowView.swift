@@ -254,7 +254,7 @@ struct MainWindowView: View {
             .toggleStyle(.switch)
             .tint(.green)
             .frame(height: 44)
-            .disabled(!vm.connected)
+            .disabled(!vm.deviceControlsEnabled)
 
             Text(deviceControlMessage)
                 .font(.system(size: 10))
@@ -332,7 +332,7 @@ struct MainWindowView: View {
                 }
         }
         .buttonStyle(.plain)
-        .disabled(!vm.connected)
+        .disabled(!vm.deviceControlsEnabled)
     }
 
     // MARK: 右栏：按键映射
@@ -393,7 +393,7 @@ struct MainWindowView: View {
             .toggleStyle(.switch)
             .tint(.green)
             .frame(height: 44)
-            .disabled(vm.helperTransitioning)
+            .disabled(!vm.helperControlEnabled)
 
             Text(helperStatusText)
                 .font(.system(size: 10))

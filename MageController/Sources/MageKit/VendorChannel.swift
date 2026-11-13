@@ -5,6 +5,25 @@
 import Foundation
 import IOKit.hid
 
+final class VendorTransactionCoordinator: @unchecked Sendable {
+    private let queue: DispatchQueue
+
+    init(label: String = "com.mage.vendorchannel.transactions") {
+        queue = DispatchQueue(label: label)
+    }
+
+    func sync<T>(_ operation: () throws -> T) rethrows -> T {
+        try queue.sync(execute: operation)
+    }
+
+    func writeAndClose(write: () throws -> Void, close: () -> Void) throws {
+        try queue.sync {
+            defer { close() }
+            try write()
+        }
+    }
+}
+
 final class VendorRunLoopWorker: @unchecked Sendable {
     private let lock = NSLock()
     private let ready = DispatchSemaphore(value: 0)
@@ -110,7 +129,7 @@ public final class VendorChannel: @unchecked Sendable {
 
     private var pending: Pending?
     private let lock = NSLock()
-    private let transactionQueue = DispatchQueue(label: "com.mage.vendorchannel.transactions")
+    private let transactions = VendorTransactionCoordinator()
 
     /// 设备主动推送（按键状态变化等）的回调，参数为 (cmd, payload)，在 IO 线程上调用
     public var onPush: ((UInt8, [UInt8]) -> Void)?
@@ -142,7 +161,7 @@ public final class VendorChannel: @unchecked Sendable {
     /// 查找并打开设备（seize=true 独占；普通模式可与 FIIO Control 网页共存）
     @discardableResult
     public func open(seize: Bool = false) throws -> Bool {
-        try transactionQueue.sync {
+        try transactions.sync {
             closeSerialized()
             return try openSerialized(seize: seize)
         }
@@ -230,19 +249,21 @@ public final class VendorChannel: @unchecked Sendable {
     @discardableResult
     public func send(cmd: MageProtocol.Cmd, payload: [UInt8] = [],
                      set: Bool = false, timeout: TimeInterval = 1.5) throws -> [UInt8] {
-        try transactionQueue.sync {
+        try transactions.sync {
             try sendSerialized(cmd: cmd, payload: payload, set: set, timeout: timeout)
         }
     }
 
-    /// Write a command without treating a response as completion. Use this for
-    /// commands that intentionally restart the USB device, then close this
-    /// connection and verify the requested state through a new connection.
-    public func sendWithoutResponse(cmd: MageProtocol.Cmd, payload: [UInt8] = [],
-                                    set: Bool = false) throws {
-        try transactionQueue.sync {
+    /// Writes a restart command exactly once and retires the old connection in
+    /// the same transaction. A queued request cannot enter between the write
+    /// and close, and a failed write still closes the old HID resources.
+    public func sendRestartCommand(cmd: MageProtocol.Cmd, payload: [UInt8] = [],
+                                   set: Bool = false) throws {
+        try transactions.writeAndClose {
             let output = VendorChannel.makeOutputReport(cmd: cmd, payload: payload, set: set)
             try writeSerialized(output.report)
+        } close: {
+            closeSerialized()
         }
     }
 
@@ -331,7 +352,7 @@ public final class VendorChannel: @unchecked Sendable {
     }
 
     public func close() {
-        transactionQueue.sync {
+        transactions.sync {
             closeSerialized()
         }
     }

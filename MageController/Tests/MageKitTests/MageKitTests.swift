@@ -116,6 +116,61 @@ final class MageKitTests: XCTestCase {
         XCTAssertEqual(frame.payload, [1])
     }
 
+    func testRestartWriteAndCloseIsOneTransaction() {
+        let coordinator = VendorTransactionCoordinator(label: #function)
+        let eventLock = NSLock()
+        var events = [String]()
+        let writeStarted = DispatchSemaphore(value: 0)
+        let allowWriteToFinish = DispatchSemaphore(value: 0)
+        let restartFinished = DispatchSemaphore(value: 0)
+        let queryFinished = DispatchSemaphore(value: 0)
+
+        DispatchQueue.global().async {
+            try? coordinator.writeAndClose {
+                eventLock.lock(); events.append("write"); eventLock.unlock()
+                writeStarted.signal()
+                allowWriteToFinish.wait()
+            } close: {
+                eventLock.lock(); events.append("close"); eventLock.unlock()
+            }
+            restartFinished.signal()
+        }
+        XCTAssertEqual(writeStarted.wait(timeout: .now() + 1), .success)
+
+        DispatchQueue.global().async {
+            coordinator.sync {
+                eventLock.lock(); events.append("query"); eventLock.unlock()
+            }
+            queryFinished.signal()
+        }
+        XCTAssertEqual(queryFinished.wait(timeout: .now() + 0.05), .timedOut)
+
+        allowWriteToFinish.signal()
+        XCTAssertEqual(restartFinished.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(queryFinished.wait(timeout: .now() + 1), .success)
+        eventLock.lock()
+        let observedEvents = events
+        eventLock.unlock()
+        XCTAssertEqual(observedEvents, ["write", "close", "query"])
+    }
+
+    func testRestartWriteFailureStillClosesWithoutRetry() {
+        enum TestError: Error { case writeFailed }
+        let coordinator = VendorTransactionCoordinator(label: #function)
+        var writeCount = 0
+        var closeCount = 0
+
+        XCTAssertThrowsError(try coordinator.writeAndClose {
+            writeCount += 1
+            throw TestError.writeFailed
+        } close: {
+            closeCount += 1
+        })
+
+        XCTAssertEqual(writeCount, 1)
+        XCTAssertEqual(closeCount, 1)
+    }
+
     func testVendorErrorsExposeActionableDescriptions() {
         XCTAssertEqual(VendorChannel.Error.deviceNotFound.localizedDescription,
                        "未发现 SNOWSKY MAGE")
@@ -284,6 +339,83 @@ final class MageKitTests: XCTestCase {
         XCTAssertEqual(matching[kIOHIDVendorIDKey] as? Int, VendorChannel.vendorID)
         XCTAssertEqual(matching[kIOHIDProductKey] as? String, VendorChannel.productName)
         XCTAssertNotEqual(VendorChannel.virtualKeyboardVendorID, VendorChannel.vendorID)
+    }
+
+    func testAudioRecoveryRequiresLiveExactInputOutputAndSampleRate() throws {
+        let output = audioDevice(
+            id: 1, input: false, output: true, rate: 48_000
+        )
+        let input = audioDevice(
+            id: 2, input: true, output: false, rate: 48_000
+        )
+
+        let snapshot = try XCTUnwrap(AudioControl.recoverySnapshot(from: [output, input]))
+        XCTAssertEqual(snapshot.sampleRate, 48_000)
+        XCTAssertEqual(snapshot.availableRates, [44_100, 48_000])
+
+        XCTAssertNil(AudioControl.recoverySnapshot(from: [output]))
+        XCTAssertNil(AudioControl.recoverySnapshot(from: [
+            output,
+            audioDevice(id: 2, alive: false, input: true, output: false, rate: 48_000),
+        ]))
+        XCTAssertNil(AudioControl.recoverySnapshot(from: [
+            audioDevice(id: 1, input: false, output: true, rate: nil),
+            input,
+        ]))
+        XCTAssertNil(AudioControl.recoverySnapshot(from: [
+            audioDevice(id: 1, name: "Virtual MAGE Aggregate", input: false,
+                        output: true, rate: 48_000),
+            input,
+        ]))
+    }
+
+    func testTransitionInterlockBlocksBothOperationOrdersAndUnlocksAfterFailure() {
+        let interlock = DeviceTransitionInterlock()
+
+        XCTAssertTrue(interlock.begin(.deviceRestart))
+        XCTAssertFalse(interlock.begin(.helperLifecycle))
+        interlock.finish(.helperLifecycle)
+        XCTAssertEqual(interlock.activeTransition, .deviceRestart)
+        interlock.finish(.deviceRestart)
+
+        XCTAssertTrue(interlock.begin(.helperLifecycle))
+        XCTAssertFalse(interlock.begin(.deviceRestart))
+        interlock.finish(.helperLifecycle)
+
+        XCTAssertTrue(interlock.begin(.deviceRestart), "failure cleanup must unlock the next action")
+        interlock.finish(.deviceRestart)
+        XCTAssertNil(interlock.activeTransition)
+    }
+
+    func testRecoveryDeadlineBoundsEveryBlockingDuration() {
+        let deadline = RecoveryDeadline(start: 100, timeout: 20)
+
+        XCTAssertEqual(deadline.boundedDuration(at: 100, maximum: 0.35), 0.35)
+        XCTAssertEqual(deadline.boundedDuration(at: 119.8, maximum: 1.5) ?? 0,
+                       0.2, accuracy: 0.000_001)
+        XCTAssertTrue(deadline.contains(119.999))
+        XCTAssertFalse(deadline.contains(120))
+        XCTAssertNil(deadline.boundedDuration(at: 120, maximum: 1.5))
+        XCTAssertNil(deadline.boundedDuration(at: 121, maximum: 1.5))
+    }
+
+    private func audioDevice(
+        id: UInt32,
+        name: String = VendorChannel.productName,
+        alive: Bool = true,
+        input: Bool,
+        output: Bool,
+        rate: Double?
+    ) -> AudioDeviceInfo {
+        AudioDeviceInfo(
+            id: id,
+            name: name,
+            isAlive: alive,
+            hasInputStreams: input,
+            hasOutputStreams: output,
+            nominalSampleRate: rate,
+            sampleRates: output ? [44_100, 48_000] : []
+        )
     }
 
     func testHelperLaunchOptionsUseExplicitAbsolutePaths() throws {

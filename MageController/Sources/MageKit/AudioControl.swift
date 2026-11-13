@@ -5,8 +5,36 @@ import CoreAudio
 public struct AudioDeviceInfo: Identifiable {
     public let id: UInt32
     public let name: String
-    public let isOutput: Bool
+    public let isAlive: Bool
+    public let hasInputStreams: Bool
+    public let hasOutputStreams: Bool
+    public let nominalSampleRate: Double?
     public let sampleRates: [Double]
+
+    public var isOutput: Bool { hasOutputStreams }
+
+    public init(
+        id: UInt32,
+        name: String,
+        isAlive: Bool,
+        hasInputStreams: Bool,
+        hasOutputStreams: Bool,
+        nominalSampleRate: Double?,
+        sampleRates: [Double]
+    ) {
+        self.id = id
+        self.name = name
+        self.isAlive = isAlive
+        self.hasInputStreams = hasInputStreams
+        self.hasOutputStreams = hasOutputStreams
+        self.nominalSampleRate = nominalSampleRate
+        self.sampleRates = sampleRates
+    }
+}
+
+public struct MageAudioRecoverySnapshot: Equatable {
+    public let sampleRate: Double
+    public let availableRates: [Double]
 }
 
 public enum AudioControl {
@@ -23,15 +51,24 @@ public enum AudioControl {
         guard AudioObjectGetPropertyData(system, &listAddr, 0, nil, &size, &devices) == noErr else { return [] }
 
         return devices.compactMap { dev -> AudioDeviceInfo? in
-            guard name(of: dev).uppercased().contains("MAGE") else { return nil }
-            let out = hasOutputStreams(dev)
-            return AudioDeviceInfo(id: dev, name: name(of: dev), isOutput: out,
-                                   sampleRates: out ? availableRates(of: dev) : [])
+            guard let deviceName = name(of: dev), isMageDeviceName(deviceName) else { return nil }
+            let output = hasStreams(dev, scope: kAudioDevicePropertyScopeOutput)
+            let input = hasStreams(dev, scope: kAudioDevicePropertyScopeInput)
+            guard output || input else { return nil }
+            return AudioDeviceInfo(
+                id: dev,
+                name: deviceName,
+                isAlive: isAlive(dev) == true,
+                hasInputStreams: input,
+                hasOutputStreams: output,
+                nominalSampleRate: currentSampleRate(deviceID: dev),
+                sampleRates: output ? availableRates(of: dev) : []
+            )
         }
     }
 
     public static func outputDevice() -> AudioDeviceInfo? {
-        mageDevices().first(where: { $0.isOutput })
+        mageDevices().first(where: { $0.isAlive && $0.isOutput })
     }
 
     @discardableResult
@@ -46,32 +83,79 @@ public enum AudioControl {
                                           UInt32(MemoryLayout<Double>.size), &r) == noErr
     }
 
-    public static func currentSampleRate(device: AudioDeviceInfo) -> Double {
+    public static func currentSampleRate(device: AudioDeviceInfo) -> Double? {
+        currentSampleRate(deviceID: device.id)
+    }
+
+    public static func recoverySnapshot(
+        from devices: [AudioDeviceInfo]
+    ) -> MageAudioRecoverySnapshot? {
+        let liveDevices = devices.filter {
+            $0.isAlive && isMageDeviceName($0.name)
+        }
+        guard liveDevices.contains(where: { $0.hasInputStreams }),
+              let output = liveDevices.first(where: {
+                  $0.hasOutputStreams && $0.nominalSampleRate != nil
+              }),
+              let sampleRate = output.nominalSampleRate else {
+            return nil
+        }
+        return MageAudioRecoverySnapshot(
+            sampleRate: sampleRate,
+            availableRates: output.sampleRates
+        )
+    }
+
+    static func isMageDeviceName(_ name: String) -> Bool {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare(VendorChannel.productName) == .orderedSame
+    }
+
+    private static func currentSampleRate(deviceID: AudioDeviceID) -> Double? {
         var addr = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyNominalSampleRate,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain)
         var rate: Double = 0
         var size = UInt32(MemoryLayout<Double>.size)
-        AudioObjectGetPropertyData(device.id, &addr, 0, nil, &size, &rate)
+        guard AudioObjectGetPropertyData(deviceID, &addr, 0, nil, &size, &rate) == noErr,
+              rate > 0 else { return nil }
         return rate
     }
 
-    static func name(of dev: AudioDeviceID) -> String {
+    static func name(of dev: AudioDeviceID) -> String? {
         var name: CFString = "" as CFString
         var size = UInt32(MemoryLayout<CFString>.size)
         var addr = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyDeviceNameCFString,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain)
-        AudioObjectGetPropertyData(dev, &addr, 0, nil, &size, &name)
+        guard AudioObjectGetPropertyData(dev, &addr, 0, nil, &size, &name) == noErr else {
+            return nil
+        }
         return name as String
     }
 
-    static func hasOutputStreams(_ dev: AudioDeviceID) -> Bool {
+    private static func isAlive(_ dev: AudioDeviceID) -> Bool? {
+        var alive: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceIsAlive,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        guard AudioObjectGetPropertyData(dev, &addr, 0, nil, &size, &alive) == noErr else {
+            return nil
+        }
+        return alive != 0
+    }
+
+    private static func hasStreams(
+        _ dev: AudioDeviceID,
+        scope: AudioObjectPropertyScope
+    ) -> Bool {
         var addr = AudioObjectPropertyAddress(
             mSelector: kAudioDevicePropertyStreams,
-            mScope: kAudioDevicePropertyScopeOutput,
+            mScope: scope,
             mElement: kAudioObjectPropertyElementMain)
         var size: UInt32 = 0
         guard AudioObjectGetPropertyDataSize(dev, &addr, 0, nil, &size) == noErr else { return false }
