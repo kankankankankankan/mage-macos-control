@@ -50,6 +50,7 @@ final class ControllerVM: ObservableObject {
     private var deviceTransitionID: UUID?
     private let transitionInterlock = DeviceTransitionInterlock()
     private var helperRecoveryGeneration = 0
+    private var shortcutRelayObserver: NSObjectProtocol?
 
     var deviceControlsEnabled: Bool {
         connected && !deviceTransitioning && !helperTransitioning && !helperRunning
@@ -75,6 +76,19 @@ final class ControllerVM: ObservableObject {
 
     init() {
         helperEnabled = loadConfig().helperEnabled
+        shortcutRelayObserver = DistributedNotificationCenter.default().addObserver(
+            forName: ShortcutRelay.notificationName,
+            object: nil,
+            queue: OperationQueue.main
+        ) { [weak self] notification in
+            guard let request = ShortcutRelay.Request(notification: notification) else {
+                fileLog("快捷键请求格式无效，已忽略")
+                return
+            }
+            Task { @MainActor [weak self] in
+                self?.handleShortcutRequest(request)
+            }
+        }
         channel.onPush = { [weak self] cmd, payload in
             guard let self else { return }
             Task { @MainActor in self.handlePush(cmd: cmd, payload: payload) }
@@ -103,6 +117,48 @@ final class ControllerVM: ObservableObject {
         }
         DispatchQueue.main.async { [weak self] in self?.restoreHelperIfNeeded() }
         poll()
+    }
+
+    deinit {
+        if let shortcutRelayObserver {
+            DistributedNotificationCenter.default().removeObserver(shortcutRelayObserver)
+        }
+    }
+
+    private func handleShortcutRequest(_ request: ShortcutRelay.Request) {
+        let action = KeyAction.keystroke(key: request.key, modifiers: request.modifiers)
+        fileLog("helper 转交快捷键 → \(action.summary)")
+        switch KeystrokeSimulator.post(key: request.key, modifiers: request.modifiers) {
+        case .success:
+            helperStatusMessage = nil
+            fileLog("快捷键回放成功 → \(action.summary)")
+            writeHelperStatus(.info, "快捷键回放成功：\(action.summary)")
+        case .failure(let error):
+            let message: String
+            if case .eventAccessDenied = error {
+                let executable = Bundle.main.executableURL?.path ?? "MAGE Controller.app"
+                message = "macOS 未授予主 App 发送键盘事件的辅助功能权限：\(executable)"
+            } else {
+                message = "快捷键回放失败：\(error.localizedDescription)"
+            }
+            helperStatusMessage = message
+            fileLog(message)
+            writeHelperStatus(.actionError, message)
+        }
+    }
+
+    private func writeHelperStatus(_ kind: HelperStatusRecord.Kind, _ message: String) {
+        do {
+            try FileManager.default.createDirectory(
+                at: Self.runtimeDirectoryURL,
+                withIntermediateDirectories: true
+            )
+            let record = HelperStatusRecord(kind: kind, message: message)
+            let data = try JSONEncoder().encode(record)
+            try data.write(to: Self.helperStatusURL, options: .atomic)
+        } catch {
+            fileLog("无法写入快捷键状态：\(error.localizedDescription)")
+        }
     }
 
     @discardableResult

@@ -904,4 +904,44 @@ final class MageKitTests: XCTestCase {
         XCTAssertNotNil(received)
         XCTAssertTrue(received?.contains("不支持回放的按键") == true)
     }
+
+    func testInterceptorForwardsKeystrokesToTheAppRelay() {
+        let interceptor = KeyInterceptor()
+        var request: ShortcutRelay.Request?
+        var actionError: String?
+        interceptor.onKeystrokeRequest = { key, modifiers in
+            request = ShortcutRelay.Request(key: key, modifiers: modifiers)
+        }
+        interceptor.onActionError = { actionError = $0 }
+
+        interceptor.run(action: .keystroke(key: "w", modifiers: ["command", "option", "control"]))
+
+        XCTAssertEqual(
+            request,
+            ShortcutRelay.Request(
+                key: "w",
+                modifiers: ["command", "option", "control"]
+            )
+        )
+        XCTAssertNil(actionError)
+    }
+
+    func testShortcutRelayDecodesRequestNotification() {
+        let notification = Notification(
+            name: ShortcutRelay.notificationName,
+            object: nil,
+            userInfo: ShortcutRelay.Request(
+                key: "w",
+                modifiers: ["command", "option", "control"]
+            ).userInfo
+        )
+
+        XCTAssertEqual(
+            ShortcutRelay.Request(notification: notification),
+            ShortcutRelay.Request(
+                key: "w",
+                modifiers: ["command", "option", "control"]
+            )
+        )
+    }
 }

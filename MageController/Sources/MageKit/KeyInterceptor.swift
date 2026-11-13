@@ -119,6 +119,9 @@ public final class KeyInterceptor {
     public private(set) var state: State = .stopped
     public var onLog: ((String) -> Void)?
     public var onActionError: ((String) -> Void)?
+    /// The helper cannot use CGEvent without its own Accessibility grant.
+    /// The app sets this callback so playback happens in the app process.
+    public var onKeystrokeRequest: ((String, [String]) -> Void)?
 
     private var manager: IOHIDManager?
     private var config = KeyConfig()
@@ -209,7 +212,9 @@ public final class KeyInterceptor {
                 reportActionError("命令启动失败：\(error.localizedDescription)")
             }
         case .keystroke(let keyName, let mods):
-            if case .failure(let error) = KeystrokeSimulator.post(key: keyName, modifiers: mods) {
+            if let onKeystrokeRequest {
+                onKeystrokeRequest(keyName, mods)
+            } else if case .failure(let error) = KeystrokeSimulator.post(key: keyName, modifiers: mods) {
                 reportActionError("快捷键回放失败：\(error.localizedDescription)")
             }
         }

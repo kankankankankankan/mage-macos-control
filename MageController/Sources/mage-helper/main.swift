@@ -68,6 +68,9 @@ private func runHelper() -> Int32 {
         fflush(stdout)
     }
     interceptor.onActionError = { message in writeStatus(.actionError, message) }
+    interceptor.onKeystrokeRequest = { key, modifiers in
+        ShortcutRelay.post(key: key, modifiers: modifiers)
+    }
     interceptor.updateConfig(initialConfig)
 
     guard interceptor.start() else {
