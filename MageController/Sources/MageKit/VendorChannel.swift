@@ -24,6 +24,90 @@ final class VendorTransactionCoordinator: @unchecked Sendable {
     }
 }
 
+final class VendorResponseRouter: @unchecked Sendable {
+    struct Pending {
+        let generation: UInt64
+        let sequence: UInt16
+        let cmd: UInt8
+        let fulfill: ([UInt8]) -> Void
+    }
+
+    private let lock = NSLock()
+    private var activeGeneration: UInt64?
+    private var pending: Pending?
+    private var pushHandler: ((UInt8, [UInt8]) -> Void)?
+
+    func activate(generation: UInt64) {
+        lock.lock()
+        activeGeneration = generation
+        pending = nil
+        lock.unlock()
+    }
+
+    func setPushHandler(_ handler: ((UInt8, [UInt8]) -> Void)?) {
+        lock.lock()
+        pushHandler = handler
+        lock.unlock()
+    }
+
+    func install(_ request: Pending) {
+        lock.lock()
+        pending = request
+        lock.unlock()
+    }
+
+    /// Returns true when the timeout won the race with response delivery.
+    func retireTimedOut(sequence: UInt16, generation: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard activeGeneration == generation,
+              pending?.sequence == sequence else { return false }
+        pending = nil
+        activeGeneration = nil
+        return true
+    }
+
+    func retire(generation: UInt64? = nil) {
+        lock.lock()
+        if generation == nil || activeGeneration == generation {
+            activeGeneration = nil
+            pending = nil
+        }
+        lock.unlock()
+    }
+
+    func route(cmd: UInt8, payload: [UInt8], generation: UInt64) {
+        lock.lock()
+        guard activeGeneration == generation else {
+            lock.unlock()
+            return
+        }
+        if let request = pending,
+           request.generation == generation,
+           request.cmd == cmd {
+            pending = nil
+            // Fulfill while holding the routing lock so a timeout cannot
+            // retire this generation after response delivery has won.
+            request.fulfill(payload)
+            lock.unlock()
+            return
+        }
+        let handler = pushHandler
+        lock.unlock()
+        handler?(cmd, payload)
+    }
+}
+
+private final class VendorCallbackContext {
+    unowned let channel: VendorChannel
+    let generation: UInt64
+
+    init(channel: VendorChannel, generation: UInt64) {
+        self.channel = channel
+        self.generation = generation
+    }
+}
+
 final class VendorRunLoopWorker: @unchecked Sendable {
     private let lock = NSLock()
     private let ready = DispatchSemaphore(value: 0)
@@ -120,19 +204,19 @@ public final class VendorChannel: @unchecked Sendable {
     private var manager: IOHIDManager?
     private var device: IOHIDDevice?
     private var reportBuf = [UInt8](repeating: 0, count: 64)
+    private var callbackContext: VendorCallbackContext?
 
-    private struct Pending {
-        let sequence: UInt16
-        let cmd: UInt8
-        let fulfill: ([UInt8]) -> Void
-    }
-
-    private var pending: Pending?
     private let lock = NSLock()
     private let transactions = VendorTransactionCoordinator()
+    private let responseRouter = VendorResponseRouter()
+    private var generation: UInt64 = 0
+    private let testWrite: (([UInt8]) throws -> Void)?
+    private let testClose: (() -> Void)?
 
     /// 设备主动推送（按键状态变化等）的回调，参数为 (cmd, payload)，在 IO 线程上调用
-    public var onPush: ((UInt8, [UInt8]) -> Void)?
+    public var onPush: ((UInt8, [UInt8]) -> Void)? {
+        didSet { responseRouter.setPushHandler(onPush) }
+    }
 
     private var pid = 0
     public var connectedPID: Int {
@@ -147,7 +231,16 @@ public final class VendorChannel: @unchecked Sendable {
         return device != nil
     }
 
-    public init() {}
+    public init() {
+        testWrite = nil
+        testClose = nil
+    }
+
+    init(testWrite: @escaping ([UInt8]) throws -> Void,
+         testClose: @escaping () -> Void) {
+        self.testWrite = testWrite
+        self.testClose = testClose
+    }
 
     /// Matching is applied before IOHIDManagerOpen so seize cannot include
     /// another HID product from the same vendor.
@@ -168,10 +261,20 @@ public final class VendorChannel: @unchecked Sendable {
     }
 
     private func openSerialized(seize: Bool) throws -> Bool {
+        lock.lock()
+        generation &+= 1
+        let connectionGeneration = generation
+        lock.unlock()
+        responseRouter.activate(generation: connectionGeneration)
+
         let m = IOHIDManagerCreate(kCFAllocatorDefault, 0)
         IOHIDManagerSetDeviceMatching(m, VendorChannel.deviceMatching as CFDictionary)
 
         let worker = VendorRunLoopWorker()
+        let callbackContext = VendorCallbackContext(
+            channel: self, generation: connectionGeneration
+        )
+        self.callbackContext = callbackContext
         ioWorker = worker
         manager = m
 
@@ -199,12 +302,20 @@ public final class VendorChannel: @unchecked Sendable {
 
             let callback: IOHIDReportCallback = { context, _, _, _, reportId, report, length in
                 guard let context else { return }
-                let channel = Unmanaged<VendorChannel>.fromOpaque(context).takeUnretainedValue()
+                let callbackContext = Unmanaged<VendorCallbackContext>
+                    .fromOpaque(context).takeUnretainedValue()
                 guard reportId == 7, length > 0 else { return }
-                channel.handleReport((0..<length).map { report[$0] })
+                callbackContext.channel.handleReport(
+                    (0..<length).map { report[$0] },
+                    generation: callbackContext.generation
+                )
             }
             IOHIDDeviceRegisterInputReportCallback(
-                dev, &reportBuf, 64, callback, Unmanaged.passUnretained(self).toOpaque()
+                dev,
+                &reportBuf,
+                64,
+                callback,
+                Unmanaged.passUnretained(callbackContext).toOpaque()
             )
             let productID = IOHIDDeviceGetProperty(dev, kIOHIDProductIDKey as CFString) as? Int ?? 0
             openResult = .success((dev, productID))
@@ -231,18 +342,11 @@ public final class VendorChannel: @unchecked Sendable {
         return true
     }
 
-    private func handleReport(_ bytes: [UInt8]) {
+    private func handleReport(_ bytes: [UInt8], generation: UInt64) {
         guard let frame = MageProtocol.parseDetailedFrame(bytes) else { return }
-        lock.lock()
-        if let p = pending, p.cmd == frame.cmd {
-            let fulfill = p.fulfill
-            pending = nil
-            lock.unlock()
-            fulfill(frame.payload)
-        } else {
-            lock.unlock()
-            onPush?(frame.cmd, frame.payload)
-        }
+        responseRouter.route(
+            cmd: frame.cmd, payload: frame.payload, generation: generation
+        )
     }
 
     /// 发送命令并等待匹配的回包（可在任意线程调用）
@@ -270,49 +374,52 @@ public final class VendorChannel: @unchecked Sendable {
     private func sendSerialized(cmd: MageProtocol.Cmd, payload: [UInt8],
                                 set: Bool, timeout: TimeInterval) throws -> [UInt8] {
         lock.lock()
-        guard let dev = device else { lock.unlock(); throw Error.deviceNotFound }
+        let dev = device
+        let connectionGeneration = generation
         lock.unlock()
+        guard dev != nil || testWrite != nil else { throw Error.deviceNotFound }
 
         let output = VendorChannel.makeOutputReport(cmd: cmd, payload: payload, set: set)
         let report = output.report
         let sequence = output.sequence
 
         let semaphore = DispatchSemaphore(value: 0)
+        let resultLock = NSLock()
         var result: [UInt8] = []
-        var completed = false
-        lock.lock()
-        pending = Pending(sequence: sequence, cmd: cmd.rawValue) {
-            self.lock.lock()
+        responseRouter.install(VendorResponseRouter.Pending(
+            generation: connectionGeneration,
+            sequence: sequence,
+            cmd: cmd.rawValue
+        ) {
+            resultLock.lock()
             result = $0
-            completed = true
-            self.lock.unlock()
+            resultLock.unlock()
             semaphore.signal()
-        }
-        lock.unlock()
+        })
 
         do {
             try writeSerialized(report, device: dev)
         } catch {
-            clearPending(sequence: sequence)
+            responseRouter.retire(generation: connectionGeneration)
+            closeSerialized()
             throw error
         }
         if semaphore.wait(timeout: .now() + timeout) == .timedOut {
-            lock.lock()
-            if completed {
-                let response = result
-                lock.unlock()
-                return response
-            } else if pending?.sequence == sequence {
-                pending = nil
+            if responseRouter.retireTimedOut(
+                sequence: sequence, generation: connectionGeneration
+            ) {
+                // The device does not echo request sequence numbers. Retire
+                // the whole generation before stopping its worker so a late
+                // response cannot be reclassified as an unsolicited push.
+                closeSerialized()
+                throw Error.timeout
             }
-            lock.unlock()
-            // The device does not echo request sequence numbers. Retire the
-            // entire connection after a timeout so a late response cannot be
-            // delivered to a later request for the same command.
-            closeSerialized()
-            throw Error.timeout
+            semaphore.wait()
         }
-        return result
+        resultLock.lock()
+        let response = result
+        resultLock.unlock()
+        return response
     }
 
     static func makeOutputReport(cmd: MageProtocol.Cmd, payload: [UInt8],
@@ -331,6 +438,10 @@ public final class VendorChannel: @unchecked Sendable {
     }
 
     private func writeSerialized(_ report: [UInt8], device knownDevice: IOHIDDevice? = nil) throws {
+        if let testWrite {
+            try testWrite(report)
+            return
+        }
         let dev: IOHIDDevice
         if let knownDevice {
             dev = knownDevice
@@ -360,10 +471,11 @@ public final class VendorChannel: @unchecked Sendable {
     private func closeSerialized() {
         lock.lock()
         let dev = device
+        let retiringGeneration = generation
         device = nil
         pid = 0
-        pending = nil
         lock.unlock()
+        responseRouter.retire(generation: retiringGeneration)
 
         let m = manager
         ioWorker?.stopAndWait { runLoop in
@@ -379,12 +491,8 @@ public final class VendorChannel: @unchecked Sendable {
         }
         ioWorker = nil
         manager = nil
-    }
-
-    private func clearPending(sequence: UInt16) {
-        lock.lock()
-        if pending?.sequence == sequence { pending = nil }
-        lock.unlock()
+        callbackContext = nil
+        testClose?()
     }
 
     deinit { close() }

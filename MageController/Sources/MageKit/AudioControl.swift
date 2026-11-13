@@ -5,6 +5,9 @@ import CoreAudio
 public struct AudioDeviceInfo: Identifiable {
     public let id: UInt32
     public let name: String
+    public let transportType: UInt32?
+    public let deviceUID: String?
+    public let modelUID: String?
     public let isAlive: Bool
     public let hasInputStreams: Bool
     public let hasOutputStreams: Bool
@@ -16,6 +19,9 @@ public struct AudioDeviceInfo: Identifiable {
     public init(
         id: UInt32,
         name: String,
+        transportType: UInt32? = nil,
+        deviceUID: String? = nil,
+        modelUID: String? = nil,
         isAlive: Bool,
         hasInputStreams: Bool,
         hasOutputStreams: Bool,
@@ -24,6 +30,9 @@ public struct AudioDeviceInfo: Identifiable {
     ) {
         self.id = id
         self.name = name
+        self.transportType = transportType
+        self.deviceUID = deviceUID
+        self.modelUID = modelUID
         self.isAlive = isAlive
         self.hasInputStreams = hasInputStreams
         self.hasOutputStreams = hasOutputStreams
@@ -35,6 +44,11 @@ public struct AudioDeviceInfo: Identifiable {
 public struct MageAudioRecoverySnapshot: Equatable {
     public let sampleRate: Double
     public let availableRates: [Double]
+
+    public init(sampleRate: Double, availableRates: [Double]) {
+        self.sampleRate = sampleRate
+        self.availableRates = availableRates
+    }
 }
 
 public enum AudioControl {
@@ -52,12 +66,21 @@ public enum AudioControl {
 
         return devices.compactMap { dev -> AudioDeviceInfo? in
             guard let deviceName = name(of: dev), isMageDeviceName(deviceName) else { return nil }
+            guard let transport = transportType(of: dev),
+                  transport == kAudioDeviceTransportTypeUSB else { return nil }
             let output = hasStreams(dev, scope: kAudioDevicePropertyScopeOutput)
             let input = hasStreams(dev, scope: kAudioDevicePropertyScopeInput)
             guard output || input else { return nil }
             return AudioDeviceInfo(
                 id: dev,
                 name: deviceName,
+                transportType: transport,
+                deviceUID: stringProperty(
+                    of: dev, selector: kAudioDevicePropertyDeviceUID
+                ),
+                modelUID: stringProperty(
+                    of: dev, selector: kAudioDevicePropertyModelUID
+                ),
                 isAlive: isAlive(dev) == true,
                 hasInputStreams: input,
                 hasOutputStreams: output,
@@ -91,10 +114,19 @@ public enum AudioControl {
         from devices: [AudioDeviceInfo]
     ) -> MageAudioRecoverySnapshot? {
         let liveDevices = devices.filter {
-            $0.isAlive && isMageDeviceName($0.name)
+            $0.isAlive
+                && isMageDeviceName($0.name)
+                && $0.transportType == kAudioDeviceTransportTypeUSB
+                && !($0.modelUID?.isEmpty ?? true)
         }
-        guard liveDevices.contains(where: { $0.hasInputStreams }),
-              let output = liveDevices.first(where: {
+        let families = Dictionary(grouping: liveDevices, by: { $0.modelUID! })
+        guard let family = families.values.first(where: { devices in
+                  devices.contains(where: { $0.hasInputStreams })
+                      && devices.contains(where: {
+                          $0.hasOutputStreams && $0.nominalSampleRate != nil
+                      })
+              }),
+              let output = family.first(where: {
                   $0.hasOutputStreams && $0.nominalSampleRate != nil
               }),
               let sampleRate = output.nominalSampleRate else {
@@ -124,16 +156,36 @@ public enum AudioControl {
     }
 
     static func name(of dev: AudioDeviceID) -> String? {
-        var name: CFString = "" as CFString
+        stringProperty(of: dev, selector: kAudioDevicePropertyDeviceNameCFString)
+    }
+
+    private static func stringProperty(
+        of dev: AudioDeviceID,
+        selector: AudioObjectPropertySelector
+    ) -> String? {
+        var value: CFString = "" as CFString
         var size = UInt32(MemoryLayout<CFString>.size)
         var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceNameCFString,
+            mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain)
-        guard AudioObjectGetPropertyData(dev, &addr, 0, nil, &size, &name) == noErr else {
+        guard AudioObjectGetPropertyData(dev, &addr, 0, nil, &size, &value) == noErr else {
             return nil
         }
-        return name as String
+        return value as String
+    }
+
+    private static func transportType(of dev: AudioDeviceID) -> UInt32? {
+        var transport: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        guard AudioObjectGetPropertyData(dev, &addr, 0, nil, &size, &transport) == noErr else {
+            return nil
+        }
+        return transport
     }
 
     private static func isAlive(_ dev: AudioDeviceID) -> Bool? {

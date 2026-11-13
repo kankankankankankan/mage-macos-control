@@ -47,6 +47,7 @@ final class ControllerVM: ObservableObject {
     private var configReadFailed = false
     private var lastHelperStatusDate: Date?
     private var transitionErrorMessage: String?
+    private var deviceTransitionID: UUID?
     private let transitionInterlock = DeviceTransitionInterlock()
 
     var deviceControlsEnabled: Bool {
@@ -55,15 +56,6 @@ final class ControllerVM: ObservableObject {
 
     var helperControlEnabled: Bool {
         !deviceTransitioning && !helperTransitioning
-    }
-
-    private struct DeviceSnapshot: Sendable {
-        let pid: Int
-        let ledOn: Bool
-        let micOn: Bool
-        let surround71: Bool
-        let sampleRate: Double
-        let availableRates: [Double]
     }
 
     private static let homeURL = FileManager.default.homeDirectoryForCurrentUser
@@ -265,9 +257,10 @@ final class ControllerVM: ObservableObject {
         let targetState = !surround71
         let targetValue: UInt8 = targetState ? 1 : 0
         let startedAt = ProcessInfo.processInfo.systemUptime
-        let deadline = RecoveryDeadline(start: startedAt, timeout: restartRecoveryTimeout)
+        let transitionID = UUID()
 
         deviceTransitioning = true
+        deviceTransitionID = transitionID
         transitionErrorMessage = nil
         connected = false
         pid = 0
@@ -277,107 +270,73 @@ final class ControllerVM: ObservableObject {
             : "正在关闭 7.1，等待设备重启重连…"
         fileLog("7.1 切换开始 target=\(targetValue)")
 
+        DispatchQueue.main.asyncAfter(deadline: .now() + restartRecoveryTimeout) { [weak self] in
+            guard let self,
+                  self.deviceTransitioning,
+                  self.deviceTransitionID == transitionID else { return }
+            self.statusMessage = "7.1 切换已超过 20 秒，正在安全收尾，请勿重复操作…"
+            fileLog("7.1 成功判定窗口已结束，等待不可取消的 HID/CoreAudio 调用安全收尾")
+        }
+
         let channel = channel
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            do {
-                // The write only means the command reached the HID transport.
-                // Completion is established below through a fresh connection.
-                try channel.sendRestartCommand(
-                    cmd: .channel71Switch, payload: [targetValue], set: true
-                )
-                fileLog("7.1 命令已写入 target=\(targetValue)，旧通道已原子关闭")
-            } catch {
-                let message = "7.1 命令发送失败，未自动重试：\(error.localizedDescription)"
-                Task { @MainActor in self?.finish71TransitionFailure(message) }
-                return
-            }
-
-            var lastObservation = "等待 USB/HID 重新枚举"
-
-            recoveryLoop: while let delay = deadline.boundedDuration(
-                at: ProcessInfo.processInfo.systemUptime,
-                maximum: restartRetryDelay
-            ) {
-                Thread.sleep(forTimeInterval: delay)
-                guard deadline.contains(ProcessInfo.processInfo.systemUptime) else { break }
-                do {
-                    guard try channel.open() else {
-                        lastObservation = "尚未发现 SNOWSKY MAGE"
-                        continue
-                    }
-                    // IOKit open/close are not cancellable. Never accept a
-                    // result after the deadline if one returns late.
-                    guard deadline.contains(ProcessInfo.processInfo.systemUptime) else {
-                        channel.close()
-                        break
-                    }
-
-                    guard let surroundTimeout = deadline.boundedDuration(
-                        at: ProcessInfo.processInfo.systemUptime,
-                        maximum: 1.5
-                    ) else { break recoveryLoop }
-                    let surround = try channel.send(
-                        cmd: .channel71Switch,
-                        timeout: surroundTimeout
-                    ).first == 1
-                    let observedPID = channel.connectedPID
-                    guard surround == targetState else {
-                        lastObservation = "设备已出现，但 7.1 仍为 \(surround ? 1 : 0)"
-                        fileLog("7.1 重连读回 PID=0x\(String(observedPID, radix: 16)) state=\(surround ? 1 : 0)，继续等待")
-                        channel.close()
-                        continue
-                    }
-
-                    guard let ledTimeout = deadline.boundedDuration(
-                        at: ProcessInfo.processInfo.systemUptime,
-                        maximum: 1.5
-                    ) else { break recoveryLoop }
-                    let led = try channel.send(cmd: .ledLight, timeout: ledTimeout).first == 1
-                    guard let micTimeout = deadline.boundedDuration(
-                        at: ProcessInfo.processInfo.systemUptime,
-                        maximum: 1.5
-                    ) else { break recoveryLoop }
-                    let mic = try channel.send(cmd: .micSwitch, timeout: micTimeout).first == 1
-                    guard let audio = AudioControl.recoverySnapshot(
-                        from: AudioControl.mageDevices()
-                    ) else {
-                        lastObservation = "HID 已恢复，音频输出或输入接口仍未就绪"
-                        channel.close()
-                        continue
-                    }
-                    guard deadline.contains(ProcessInfo.processInfo.systemUptime) else {
-                        channel.close()
-                        break
-                    }
-
-                    let snapshot = DeviceSnapshot(
-                        pid: observedPID,
-                        ledOn: led,
-                        micOn: mic,
-                        surround71: surround,
-                        sampleRate: audio.sampleRate,
-                        availableRates: audio.availableRates
+            let coordinator = DeviceRestartCoordinator()
+            let result = coordinator.run(
+                targetState: targetState,
+                startedAt: startedAt,
+                timeout: restartRecoveryTimeout,
+                retryDelay: restartRetryDelay,
+                io: DeviceRestartIO(
+                    sendRestart: { target in
+                        try channel.sendRestartCommand(
+                            cmd: .channel71Switch,
+                            payload: [target ? 1 : 0],
+                            set: true
+                        )
+                        fileLog("7.1 命令已写入 target=\(target ? 1 : 0)，旧通道已原子关闭")
+                    },
+                    open: { try channel.open() },
+                    read: { command, timeout in
+                        try channel.send(cmd: command, timeout: timeout).first
+                    },
+                    connectedPID: { channel.connectedPID },
+                    audioSnapshot: {
+                        AudioControl.recoverySnapshot(from: AudioControl.mageDevices())
+                    },
+                    close: { channel.close() }
+                ),
+                observe: { message in fileLog("7.1 重连观察：\(message)") }
+            )
+            Task { @MainActor in
+                guard let self else { return }
+                switch result {
+                case .success(let snapshot, let elapsed):
+                    self.finish71TransitionSuccess(
+                        snapshot, elapsed: elapsed, transitionID: transitionID
                     )
-                    let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
-                    Task { @MainActor in
-                        self?.finish71TransitionSuccess(snapshot, elapsed: elapsed)
-                    }
-                    return
-                } catch {
-                    lastObservation = error.localizedDescription
-                    channel.close()
+                case .commandFailure(let detail):
+                    self.finish71TransitionFailure(
+                        "7.1 命令发送失败，未自动重试：\(detail)",
+                        transitionID: transitionID
+                    )
+                case .recoveryFailure(let detail):
+                    self.finish71TransitionFailure(
+                        "7.1 未在 20 秒成功判定窗口内恢复：\(detail)。底层通信已安全收尾，请重新插拔 MAGE USB 后再重试",
+                        transitionID: transitionID
+                    )
                 }
             }
-
-            channel.close()
-            let message = "7.1 切换超时：\(lastObservation)。请重新插拔 MAGE USB 后重试"
-            Task { @MainActor in self?.finish71TransitionFailure(message) }
         }
     }
 
-    private func finish71TransitionSuccess(_ snapshot: DeviceSnapshot, elapsed: TimeInterval) {
-        guard deviceTransitioning else { return }
+    private func finish71TransitionSuccess(
+        _ snapshot: DeviceRestartSnapshot,
+        elapsed: TimeInterval,
+        transitionID: UUID
+    ) {
+        guard deviceTransitioning, deviceTransitionID == transitionID else { return }
         deviceTransitioning = false
+        deviceTransitionID = nil
         transitionInterlock.finish(.deviceRestart)
         transitionErrorMessage = nil
         connected = true
@@ -399,9 +358,10 @@ final class ControllerVM: ObservableObject {
         poll()
     }
 
-    private func finish71TransitionFailure(_ message: String) {
-        guard deviceTransitioning else { return }
+    private func finish71TransitionFailure(_ message: String, transitionID: UUID) {
+        guard deviceTransitioning, deviceTransitionID == transitionID else { return }
         deviceTransitioning = false
+        deviceTransitionID = nil
         transitionInterlock.finish(.deviceRestart)
         connected = false
         pid = 0

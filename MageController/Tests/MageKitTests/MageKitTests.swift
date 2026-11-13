@@ -1,5 +1,6 @@
 import XCTest
 import IOKit.hid
+import CoreAudio
 import CoreGraphics
 import Darwin
 @testable import MageKit
@@ -169,6 +170,107 @@ final class MageKitTests: XCTestCase {
 
         XCTAssertEqual(writeCount, 1)
         XCTAssertEqual(closeCount, 1)
+    }
+
+    func testActualRestartCommandSerializesWriteAndCloseWithoutRetry() {
+        let eventLock = NSLock()
+        var events = [String]()
+        let firstWriteStarted = DispatchSemaphore(value: 0)
+        let allowFirstWrite = DispatchSemaphore(value: 0)
+        let firstFinished = DispatchSemaphore(value: 0)
+        let secondFinished = DispatchSemaphore(value: 0)
+
+        let channel = VendorChannel(testWrite: { report in
+            let frame = try XCTUnwrap(
+                MageProtocol.parseDetailedFrame(Array(report.dropFirst()))
+            )
+            eventLock.lock()
+            events.append("write-\(frame.payload.first ?? 255)")
+            let isFirst = events.count == 1
+            eventLock.unlock()
+            if isFirst {
+                firstWriteStarted.signal()
+                allowFirstWrite.wait()
+            }
+        }, testClose: {
+            eventLock.lock()
+            events.append("close")
+            eventLock.unlock()
+        })
+
+        DispatchQueue.global().async {
+            try? channel.sendRestartCommand(
+                cmd: .channel71Switch, payload: [1], set: true
+            )
+            firstFinished.signal()
+        }
+        XCTAssertEqual(firstWriteStarted.wait(timeout: .now() + 1), .success)
+
+        DispatchQueue.global().async {
+            try? channel.sendRestartCommand(
+                cmd: .channel71Switch, payload: [0], set: true
+            )
+            secondFinished.signal()
+        }
+        XCTAssertEqual(secondFinished.wait(timeout: .now() + 0.05), .timedOut)
+
+        allowFirstWrite.signal()
+        XCTAssertEqual(firstFinished.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(secondFinished.wait(timeout: .now() + 1), .success)
+
+        eventLock.lock()
+        let observed = events
+        eventLock.unlock()
+        XCTAssertEqual(observed, ["write-1", "close", "write-0", "close"])
+    }
+
+    func testActualRestartWriteFailureClosesOnce() {
+        enum TestError: Error { case writeFailed }
+        var writeCount = 0
+        var closeCount = 0
+        let channel = VendorChannel(testWrite: { _ in
+            writeCount += 1
+            throw TestError.writeFailed
+        }, testClose: {
+            closeCount += 1
+        })
+
+        XCTAssertThrowsError(try channel.sendRestartCommand(
+            cmd: .channel71Switch, payload: [0], set: true
+        ))
+        XCTAssertEqual(writeCount, 1)
+        XCTAssertEqual(closeCount, 1)
+    }
+
+    func testRetiredVendorGenerationDropsLateResponseInsteadOfPush() {
+        let router = VendorResponseRouter()
+        var fulfillmentCount = 0
+        var pushCount = 0
+        router.setPushHandler { _, _ in pushCount += 1 }
+        router.activate(generation: 41)
+        router.install(VendorResponseRouter.Pending(
+            generation: 41,
+            sequence: 7,
+            cmd: MageProtocol.Cmd.micSwitch.rawValue,
+            fulfill: { _ in fulfillmentCount += 1 }
+        ))
+
+        XCTAssertTrue(router.retireTimedOut(sequence: 7, generation: 41))
+        router.route(
+            cmd: MageProtocol.Cmd.micSwitch.rawValue,
+            payload: [0],
+            generation: 41
+        )
+        XCTAssertEqual(fulfillmentCount, 0)
+        XCTAssertEqual(pushCount, 0)
+
+        router.activate(generation: 42)
+        router.route(
+            cmd: MageProtocol.Cmd.micSwitch.rawValue,
+            payload: [1],
+            generation: 42
+        )
+        XCTAssertEqual(pushCount, 1)
     }
 
     func testVendorErrorsExposeActionableDescriptions() {
@@ -363,9 +465,18 @@ final class MageKitTests: XCTestCase {
             input,
         ]))
         XCTAssertNil(AudioControl.recoverySnapshot(from: [
-            audioDevice(id: 1, name: "Virtual MAGE Aggregate", input: false,
-                        output: true, rate: 48_000),
+            audioDevice(id: 1, transport: kAudioDeviceTransportTypeVirtual,
+                        input: false, output: true, rate: 48_000),
             input,
+        ]))
+        XCTAssertNil(AudioControl.recoverySnapshot(from: [
+            output,
+            audioDevice(id: 2, modelUID: "different-model", input: true,
+                        output: false, rate: 48_000),
+        ]))
+        XCTAssertNil(AudioControl.recoverySnapshot(from: [
+            audioDevice(id: 1, modelUID: nil, input: false, output: true, rate: 48_000),
+            audioDevice(id: 2, modelUID: nil, input: true, output: false, rate: 48_000),
         ]))
     }
 
@@ -399,9 +510,84 @@ final class MageKitTests: XCTestCase {
         XCTAssertNil(deadline.boundedDuration(at: 121, maximum: 1.5))
     }
 
+    func testRestartCoordinatorExercisesOneShotWriteReadbackAndAudioGate() {
+        var now: TimeInterval = 100
+        var events = [String]()
+        let coordinator = DeviceRestartCoordinator(
+            now: { now },
+            sleep: { delay in now += delay }
+        )
+        let result = coordinator.run(
+            targetState: true,
+            startedAt: 100,
+            timeout: 20,
+            retryDelay: 0.35,
+            io: DeviceRestartIO(
+                sendRestart: { target in events.append("write-\(target ? 1 : 0)") },
+                open: { events.append("open"); return true },
+                read: { command, _ in
+                    events.append("read-\(command.rawValue)")
+                    switch command {
+                    case .channel71Switch, .ledLight, .micSwitch: return 1
+                    default: return nil
+                    }
+                },
+                connectedPID: { 0x4026 },
+                audioSnapshot: {
+                    events.append("audio")
+                    return MageAudioRecoverySnapshot(
+                        sampleRate: 48_000,
+                        availableRates: [48_000]
+                    )
+                },
+                close: { events.append("close") }
+            )
+        )
+
+        guard case .success(let snapshot, let elapsed) = result else {
+            return XCTFail("expected success, got \(result)")
+        }
+        XCTAssertEqual(snapshot.pid, 0x4026)
+        XCTAssertTrue(snapshot.surround71)
+        XCTAssertEqual(elapsed, 0.35, accuracy: 0.000_001)
+        XCTAssertEqual(events, ["write-1", "open", "read-56", "read-6", "read-18", "audio"])
+    }
+
+    func testRestartCoordinatorRejectsResultsAfterSuccessDeadline() {
+        var now: TimeInterval = 200
+        var openCount = 0
+        var closeCount = 0
+        let coordinator = DeviceRestartCoordinator(now: { now }, sleep: { now += $0 })
+        let result = coordinator.run(
+            targetState: false,
+            startedAt: 200,
+            timeout: 20,
+            retryDelay: 0.35,
+            io: DeviceRestartIO(
+                sendRestart: { _ in now = 221 },
+                open: { openCount += 1; return true },
+                read: { _, _ in 0 },
+                connectedPID: { 0x4022 },
+                audioSnapshot: {
+                    MageAudioRecoverySnapshot(sampleRate: 48_000, availableRates: [48_000])
+                },
+                close: { closeCount += 1 }
+            )
+        )
+
+        XCTAssertEqual(
+            result,
+            .recoveryFailure("命令发送或旧通道收尾超过成功判定窗口")
+        )
+        XCTAssertEqual(openCount, 0)
+        XCTAssertEqual(closeCount, 1)
+    }
+
     private func audioDevice(
         id: UInt32,
         name: String = VendorChannel.productName,
+        transport: UInt32 = kAudioDeviceTransportTypeUSB,
+        modelUID: String? = "SNOWSKY MAGE:2972:4022",
         alive: Bool = true,
         input: Bool,
         output: Bool,
@@ -410,6 +596,9 @@ final class MageKitTests: XCTestCase {
         AudioDeviceInfo(
             id: id,
             name: name,
+            transportType: transport,
+            deviceUID: "AppleUSBAudioEngine:FIIO:SNOWSKY MAGE:test:\(id)",
+            modelUID: modelUID,
             isAlive: alive,
             hasInputStreams: input,
             hasOutputStreams: output,
