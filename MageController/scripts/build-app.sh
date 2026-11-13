@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd)"
 APP="$ROOT/dist/MAGE Controller.app"
 BUILD=.build/release
+HELPER="$APP/Contents/MacOS/mage-helper"
 
 swift build -c release
 
@@ -12,7 +13,7 @@ rm -rf "$ROOT/dist"
 mkdir -p "$APP/Contents/MacOS"
 
 cp "$BUILD/MageControllerApp" "$APP/Contents/MacOS/MAGE Controller"
-cp "$BUILD/mage-helper"       "$APP/Contents/MacOS/mage-helper"
+cp "$BUILD/mage-helper"       "$HELPER"
 
 cat > "$APP/Contents/Info.plist" << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -39,5 +40,8 @@ cat > "$APP/Contents/Info.plist" << 'EOF'
 </plist>
 EOF
 
+test -x "$HELPER" || { echo "helper 缺失或不可执行: $HELPER" >&2; exit 1; }
+codesign --force --sign - "$HELPER" >/dev/null 2>&1 || true
 codesign --force --sign - "$APP" >/dev/null 2>&1 || true
 echo "已生成: $APP"
+echo "helper: $HELPER"

@@ -12,7 +12,7 @@ public enum MageProtocol {
     public static let getStart: UInt8 = 0x0B
     public static let stop: UInt8 = 0xEE
 
-    public enum Cmd: UInt8, CaseIterable {
+    public enum Cmd: UInt8, CaseIterable, Sendable {
         case volMax = 1
         case volOutput = 2
         case filterMode = 4

@@ -5,7 +5,7 @@
 import Foundation
 import IOKit.hid
 
-public final class VendorChannel {
+public final class VendorChannel: @unchecked Sendable {
     public static let vendorID = 0x2972
     public static let productName = "SNOWSKY MAGE"
     public static let virtualKeyboardVendorID = 0xF1F0
@@ -87,7 +87,7 @@ public final class VendorChannel {
         ]
     }
 
-    /// 查找并打开设备（seize=true 独占，需要 root；普通模式可与 FIIO Control 网页共存）
+    /// 查找并打开设备（seize=true 独占；普通模式可与 FIIO Control 网页共存）
     @discardableResult
     public func open(seize: Bool = false) throws -> Bool {
         try transactionQueue.sync {

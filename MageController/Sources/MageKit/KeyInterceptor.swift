@@ -1,5 +1,5 @@
 // 按键拦截器：IOKit 独占（seize）MAGE 的 HID 设备，按配置执行动作
-// seize 需要 root —— 由 mage-helper 守护进程承担
+// 由当前登录用户的 mage-helper 进程承担，避免 shell 动作获得额外权限
 
 import Foundation
 import CoreGraphics
@@ -114,6 +114,7 @@ public final class KeyInterceptor {
     public enum State { case stopped, running, failed(String) }
     public private(set) var state: State = .stopped
     public var onLog: ((String) -> Void)?
+    public var onActionError: ((String) -> Void)?
 
     private var manager: IOHIDManager?
     private var config = KeyConfig()
@@ -137,7 +138,7 @@ public final class KeyInterceptor {
         IOHIDManagerScheduleWithRunLoop(m, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
         let r = IOHIDManagerOpen(m, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
         guard r == kIOReturnSuccess else {
-            state = .failed("无法独占设备（需要 root）: 0x\(String(r, radix: 16))")
+            state = .failed("无法独占 MAGE 设备: 0x\(String(r, radix: 16))")
             return false
         }
         let devices = (IOHIDManagerCopyDevices(m) as? Set<IOHIDDevice> ?? [])
@@ -198,10 +199,21 @@ public final class KeyInterceptor {
             let t = Process(); t.executableURL = URL(fileURLWithPath: "/bin/zsh")
             t.arguments = ["-c", cmd]
             t.standardOutput = FileHandle.nullDevice; t.standardError = FileHandle.nullDevice
-            try? t.run()
+            do {
+                try t.run()
+            } catch {
+                reportActionError("命令启动失败：\(error.localizedDescription)")
+            }
         case .keystroke(let keyName, let mods):
-            KeystrokeSimulator.post(key: keyName, modifiers: mods)
+            if case .failure(let error) = KeystrokeSimulator.post(key: keyName, modifiers: mods) {
+                reportActionError("快捷键回放失败：\(error.localizedDescription)")
+            }
         }
+    }
+
+    private func reportActionError(_ message: String) {
+        log(message)
+        onActionError?(message)
     }
 
     // MARK: - 麦克风键（厂商通道 cmd 18 推送；独占模式下 HID 按键与厂商报告都归本进程）

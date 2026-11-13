@@ -1,6 +1,7 @@
 import XCTest
 import IOKit.hid
 import CoreGraphics
+import Darwin
 @testable import MageKit
 
 final class MageKitTests: XCTestCase {
@@ -138,5 +139,55 @@ final class MageKitTests: XCTestCase {
         XCTAssertEqual(matching[kIOHIDVendorIDKey] as? Int, VendorChannel.vendorID)
         XCTAssertEqual(matching[kIOHIDProductKey] as? String, VendorChannel.productName)
         XCTAssertNotEqual(VendorChannel.virtualKeyboardVendorID, VendorChannel.vendorID)
+    }
+
+    func testHelperLaunchOptionsUseExplicitAbsolutePaths() throws {
+        let options = try HelperLaunchOptions(
+            arguments: [
+                "--config", "/Users/test/.config/mage-controller/config.json",
+                "--pid-file", "/Users/test/Library/Application Support/MAGE Controller/helper.pid",
+                "--status-file", "/Users/test/Library/Application Support/MAGE Controller/status.json",
+            ],
+            homeDirectoryURL: URL(fileURLWithPath: "/fallback")
+        )
+
+        XCTAssertEqual(options.configURL.path, "/Users/test/.config/mage-controller/config.json")
+        XCTAssertEqual(options.processArguments.count, 6)
+        XCTAssertThrowsError(try HelperLaunchOptions(
+            arguments: ["--config", "relative/config.json"],
+            homeDirectoryURL: URL(fileURLWithPath: "/fallback")
+        ))
+    }
+
+    func testProcessInspectorVerifiesPIDUIDAndExecutablePath() throws {
+        let pid = getpid()
+        let identity = try XCTUnwrap(HelperProcessInspector.identity(for: pid))
+        XCTAssertEqual(identity.pid, pid)
+        XCTAssertEqual(identity.uid, getuid())
+        XCTAssertTrue(HelperProcessInspector.matches(
+            pid: pid,
+            executableURL: identity.executableURL,
+            uid: getuid()
+        ))
+        XCTAssertFalse(HelperProcessInspector.matches(
+            pid: pid,
+            executableURL: URL(fileURLWithPath: "/not/the/current/executable"),
+            uid: getuid()
+        ))
+        XCTAssertTrue(
+            HelperProcessInspector.identities(named: identity.executableURL.lastPathComponent)
+                .contains(where: { $0.pid == pid })
+        )
+    }
+
+    func testInterceptorReportsUnsupportedPlaybackFailure() {
+        let interceptor = KeyInterceptor()
+        var received: String?
+        interceptor.onActionError = { received = $0 }
+
+        interceptor.run(action: .keystroke(key: "not-a-key", modifiers: []))
+
+        XCTAssertNotNil(received)
+        XCTAssertTrue(received?.contains("不支持回放的按键") == true)
     }
 }

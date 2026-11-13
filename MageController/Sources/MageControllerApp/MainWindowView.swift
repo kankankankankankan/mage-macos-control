@@ -117,15 +117,17 @@ struct MainWindowView: View {
         .background(WindowConfigurator())
         .onAppear { config = vm.loadConfig() }
         .onDisappear { recorder.stop(); recordingRow = nil }
-        .onChange(of: recorder.capturedName) { name in
+        .onChange(of: recorder.capturedName) { _, name in
             guard let name, let row = recordingRow else { return }
             recordingRow = nil
             let mods = recorder.capturedMods
-            apply(.keystroke(key: name, modifiers: mods), to: row)
+            let saved = apply(.keystroke(key: name, modifiers: mods), to: row)
             recorder.capturedName = nil
-            fileLog("录制: 应用到 \(row.rawValue) -> \(name) + \(mods.joined(separator: "+"))")
+            if saved {
+                fileLog("录制: 应用到 \(row.rawValue) -> \(name) + \(mods.joined(separator: "+"))")
+            }
         }
-        .onChange(of: recorder.recording) { on in
+        .onChange(of: recorder.recording) { _, on in
             if !on { recordingRow = nil }
         }
     }
@@ -220,13 +222,19 @@ struct MainWindowView: View {
                 .foregroundStyle(.secondary)
                 .padding(.top, 10)
 
-            Toggle("按后自动恢复麦克风", isOn: $config.micAutoUnmute)
+            Toggle("按后自动恢复麦克风", isOn: Binding(
+                get: { config.micAutoUnmute },
+                set: { value in
+                    var updated = config
+                    updated.micAutoUnmute = value
+                    if vm.saveConfig(updated) { config = updated }
+                }
+            ))
                 .toggleStyle(.switch)
                 .controlSize(.small)
                 .tint(.green)
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
-                .onChange(of: config.micAutoUnmute) { _ in vm.saveConfig(config) }
                 .padding(.top, 6)
 
             Spacer(minLength: 8)
@@ -378,12 +386,14 @@ struct MainWindowView: View {
             .toggleStyle(.switch)
             .tint(.green)
             .frame(height: 44)
+            .disabled(vm.helperTransitioning)
 
             Text(helperStatusText)
                 .font(.system(size: 10))
                 .foregroundStyle(helperStatusColor)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28, alignment: .topLeading)
+                .help(helperStatusText)
         }
         .padding(20)
         .background {
@@ -399,8 +409,7 @@ struct MainWindowView: View {
     private func shellEditor(_ row: RowID) -> some View {
         HStack(spacing: 6) {
             TextField("输入要运行的命令", text: $shellDraft) {
-                apply(.shell(shellDraft), to: row)
-                shellRow = nil
+                if apply(.shell(shellDraft), to: row) { shellRow = nil }
             }
             .textFieldStyle(.plain)
             .font(.system(size: 11))
@@ -416,8 +425,7 @@ struct MainWindowView: View {
             }
 
             Button {
-                apply(.shell(shellDraft), to: row)
-                shellRow = nil
+                if apply(.shell(shellDraft), to: row) { shellRow = nil }
             } label: {
                 Image(systemName: "checkmark")
                     .frame(width: 28, height: 28)
@@ -437,22 +445,18 @@ struct MainWindowView: View {
     }
 
     private var helperStatusText: String {
+        if let message = vm.bindingStatusMessage { return message }
+        if let message = vm.helperStatusMessage { return message }
+        if vm.helperTransitioning { return "正在更新按键拦截状态…" }
         if vm.helperRunning { return "运行中，设备按键已接管" }
-        if helperFailureVisible { return vm.statusMessage }
         if vm.helperEnabled { return "按键拦截未运行，请重试" }
         return "未开启"
     }
 
     private var helperStatusColor: Color {
-        if helperFailureVisible || (vm.helperEnabled && !vm.helperRunning) { return .orange }
+        if vm.bindingStatusMessage != nil || vm.helperStatusMessage != nil
+            || (vm.helperEnabled && !vm.helperRunning) { return .orange }
         return vm.helperRunning ? Color(hex: 0x34C759) : .secondary
-    }
-
-    private var helperFailureVisible: Bool {
-        let message = vm.statusMessage
-        return message.contains("按键拦截")
-            || message.contains("守护进程")
-            || message.contains("配置")
     }
 
     private func bindingRow(_ row: RowID) -> some View {
@@ -552,15 +556,19 @@ struct MainWindowView: View {
         }
     }
 
-    private func apply(_ action: KeyAction, to row: RowID) {
+    @discardableResult
+    private func apply(_ action: KeyAction, to row: RowID) -> Bool {
+        var updated = config
         switch row {
-        case .left:  config.keys[MageKey.volumeDown.rawValue] = action
-        case .right: config.keys[MageKey.volumeUp.rawValue] = action
+        case .left:  updated.keys[MageKey.volumeDown.rawValue] = action
+        case .right: updated.keys[MageKey.volumeUp.rawValue] = action
         case .up, .down, .menu:
-            config.keys[MageKey.playPause.rawValue] = action   // 三键同码，同步生效
-        case .mic:   config.micKey = action
+            updated.keys[MageKey.playPause.rawValue] = action   // 三键同码，同步生效
+        case .mic:   updated.micKey = action
         }
-        vm.saveConfig(config)
+        guard vm.saveConfig(updated) else { return false }
+        config = updated
+        return true
     }
 
     private func pillText(_ action: KeyAction) -> String {

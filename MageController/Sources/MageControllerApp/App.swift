@@ -2,6 +2,7 @@
 // 功能：设备状态显示、灯/麦克风/7.1 控制、采样率切换（触发灯色）、按键映射编辑、拦截守护进程管理
 import SwiftUI
 import Combine
+import Darwin
 import MageKit
 
 // MARK: - 视图模型
@@ -29,10 +30,29 @@ final class ControllerVM: ObservableObject {
     @Published var availableRates: [Double] = []
     @Published var helperRunning = false
     @Published var helperEnabled = false
+    @Published var helperTransitioning = false
+    @Published var helperStatusMessage: String?
+    @Published var bindingStatusMessage: String?
     @Published var statusMessage = "未连接"
 
     private let channel = VendorChannel()
     private var pollWork: DispatchWorkItem?
+    private var helperProcess: Process?
+    private var helperLogHandle: FileHandle?
+    private var helperStopRequested = false
+    private var configReadFailed = false
+    private var lastHelperStatusDate: Date?
+
+    private static let homeURL = FileManager.default.homeDirectoryForCurrentUser
+    private static let configURL = homeURL
+        .appendingPathComponent(".config/mage-controller/config.json")
+    private static let runtimeDirectoryURL = homeURL
+        .appendingPathComponent("Library/Application Support/MAGE Controller", isDirectory: true)
+    private static let helperPIDURL = runtimeDirectoryURL.appendingPathComponent("mage-helper.pid")
+    private static let helperStatusURL = runtimeDirectoryURL
+        .appendingPathComponent("mage-helper-status.json")
+    private static let helperLogURL = homeURL
+        .appendingPathComponent("Library/Logs/MAGE Controller/mage-helper.log")
 
     init() {
         helperEnabled = loadConfig().helperEnabled
@@ -56,19 +76,44 @@ final class ControllerVM: ObservableObject {
                 KeyRecorder.shared.start(timeout: 600) { name, mods in
                     var cfg = self?.loadConfig() ?? KeyConfig()
                     cfg.micKey = .keystroke(key: name, modifiers: mods)
-                    self?.saveConfig(cfg)
-                    fileLog("CLI: 已保存 micKey = \(name) + \(mods.joined(separator: "+"))")
+                    if self?.saveConfig(cfg) == true {
+                        fileLog("CLI: 已保存 micKey = \(name) + \(mods.joined(separator: "+"))")
+                    }
                 }
             }
         }
+        DispatchQueue.main.async { [weak self] in self?.restoreHelperIfNeeded() }
         poll()
     }
 
-    func saveConfig(_ cfg: KeyConfig) {
-        let dir = URL(fileURLWithPath: NSHomeDirectory() + "/.config/mage-controller")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        if let data = try? JSONEncoder().encode(cfg) {
-            try? data.write(to: dir.appendingPathComponent("config.json"))
+    @discardableResult
+    func saveConfig(_ cfg: KeyConfig) -> Bool {
+        guard !configReadFailed else {
+            bindingStatusMessage = "配置读取失败，已停止写入；请修复 config.json 后重启应用"
+            return false
+        }
+        do {
+            try validateConfig(cfg)
+            let data = try JSONEncoder().encode(cfg)
+            try FileManager.default.createDirectory(
+                at: Self.configURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: Self.configURL, options: .atomic)
+            bindingStatusMessage = nil
+            return true
+        } catch {
+            bindingStatusMessage = "配置未保存：\(error.localizedDescription)"
+            fileLog(bindingStatusMessage ?? "配置未保存")
+            return false
+        }
+    }
+
+    private func validateConfig(_ cfg: KeyConfig) throws {
+        for action in Array(cfg.keys.values) + [cfg.micKey] {
+            if case .keystroke(let key, let modifiers) = action {
+                try KeystrokeSimulator.validate(key: key, modifiers: modifiers)
+            }
         }
     }
 
@@ -92,12 +137,17 @@ final class ControllerVM: ObservableObject {
         switch cfg.micKey {
         case .block: break
         case .shell(let cmd): runShell(cmd)
-        case .keystroke(let k, let mods): KeystrokeSimulator.post(key: k, modifiers: mods)
+        case .keystroke(let k, let mods):
+            if case .failure(let error) = KeystrokeSimulator.post(key: k, modifiers: mods) {
+                bindingStatusMessage = "快捷键执行失败：\(error.localizedDescription)"
+                fileLog(bindingStatusMessage ?? "快捷键执行失败")
+            }
         }
         if cfg.micAutoUnmute {
+            let channel = channel
             DispatchQueue.global().async { [weak self] in
                 guard let self else { return }
-                if let r = try? self.channel.send(cmd: .micSwitch, payload: [1], set: true) {
+                if let r = try? channel.send(cmd: .micSwitch, payload: [1], set: true) {
                     Task { @MainActor in self.micOn = r.first == 1 }
                 }
             }
@@ -105,12 +155,21 @@ final class ControllerVM: ObservableObject {
     }
 
     func loadConfig() -> KeyConfig {
-        let url = URL(fileURLWithPath: NSHomeDirectory() + "/.config/mage-controller/config.json")
-        guard let data = try? Data(contentsOf: url),
-              let cfg = try? JSONDecoder().decode(KeyConfig.self, from: data) else {
+        guard FileManager.default.fileExists(atPath: Self.configURL.path) else {
+            configReadFailed = false
             return KeyConfig()
         }
-        return cfg
+        do {
+            let data = try Data(contentsOf: Self.configURL)
+            let cfg = try JSONDecoder().decode(KeyConfig.self, from: data)
+            configReadFailed = false
+            return cfg
+        } catch {
+            configReadFailed = true
+            bindingStatusMessage = "配置读取失败，已停止写入：\(error.localizedDescription)"
+            fileLog(bindingStatusMessage ?? "配置读取失败")
+            return KeyConfig()
+        }
     }
 
     private func runShell(_ cmd: String) {
@@ -122,13 +181,13 @@ final class ControllerVM: ObservableObject {
 
     func poll() {
         pollWork?.cancel()
+        refreshHelperState()
         let work = DispatchWorkItem { [weak self] in self?.pollOnce() }
         pollWork = work
         DispatchQueue.global().asyncAfter(deadline: .now() + 2.0, execute: work)
     }
 
     private func pollOnce() {
-        let helperOn = isHelperRunning()
         do {
             if !channel.isConnected {
                 _ = try channel.open()
@@ -143,7 +202,6 @@ final class ControllerVM: ObservableObject {
                 self.ledOn = led == 1
                 self.micOn = mic == 1
                 self.surround71 = s71 == 1
-                self.helperRunning = helperOn
                 self.statusMessage = String(format: "已连接 PID=0x%04X", self.pid)
                 fileLog("\(self.statusMessage) LED=\(led) MIC=\(mic) 7.1=\(s71)")
                 if !wasConnected { fileLog("设备上线") }
@@ -156,7 +214,6 @@ final class ControllerVM: ObservableObject {
         } catch {
             Task { @MainActor in
                 self.connected = false
-                self.helperRunning = helperOn
                 self.statusMessage = "未连接（等待设备）"
                 fileLog("设备离线: \(error.localizedDescription)")
                 self.channel.close()
@@ -172,9 +229,10 @@ final class ControllerVM: ObservableObject {
         // 切换 7.1 设备会重新枚举：发送命令后等待重连再刷新
         runSet(.channel71Switch, value: surround71 ? 0 : 1, update: { _ in })
         statusMessage = "正在切换 7.1（设备重新枚举）…"
+        let channel = channel
         DispatchQueue.global().asyncAfter(deadline: .now() + 6) { [weak self] in
-            self?.channel.close()
-            self?.poll()
+            channel.close()
+            Task { @MainActor in self?.poll() }
         }
     }
 
@@ -187,10 +245,11 @@ final class ControllerVM: ObservableObject {
 
     private func runSet(_ cmd: MageProtocol.Cmd, value: UInt8,
                         update: @escaping (UInt8) -> Void) {
+        let channel = channel
         DispatchQueue.global().async { [weak self] in
             guard let self else { return }
             do {
-                let r = try self.channel.send(cmd: cmd, payload: [value], set: true).first ?? value
+                let r = try channel.send(cmd: cmd, payload: [value], set: true).first ?? value
                 Task { @MainActor in update(r) }
             } catch {
                 Task { @MainActor in self.statusMessage = "命令失败: \(error)" }
@@ -198,66 +257,256 @@ final class ControllerVM: ObservableObject {
         }
     }
 
-    // MARK: 拦截守护进程（需要 root）
+    // MARK: 按键拦截 helper（当前用户进程）
+
     var helperPath: String {
-        Bundle.main.bundleURL.deletingLastPathComponent()
-            .appendingPathComponent("mage-helper").path
+        helperURL?.path ?? ""
     }
 
-    /// 守护进程是否真在跑（pgrep 探测 —— osascript 返回 0 不代表进程存活）
-    func isHelperRunning() -> Bool {
-        let t = Process(); t.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
-        t.arguments = ["-f", "mage-helper"]
-        try? t.run(); t.waitUntilExit()
-        return t.terminationStatus == 0
+    private var helperURL: URL? {
+        Bundle.main.executableURL?.deletingLastPathComponent()
+            .appendingPathComponent("mage-helper")
+            .standardizedFileURL
     }
 
-    private func setHelperEnabled(_ on: Bool) {
+    private var helperOptions: HelperLaunchOptions? {
+        guard let options = try? HelperLaunchOptions(
+            configURL: Self.configURL,
+            pidFileURL: Self.helperPIDURL,
+            statusFileURL: Self.helperStatusURL
+        ) else { return nil }
+        return options
+    }
+
+    private func controlledHelperPID() -> pid_t? {
+        guard let executableURL = helperURL else { return nil }
+        if let process = helperProcess,
+           process.isRunning,
+           HelperProcessInspector.matches(
+               pid: process.processIdentifier,
+               executableURL: executableURL
+           ) {
+            return process.processIdentifier
+        }
+        guard let text = try? String(contentsOf: Self.helperPIDURL, encoding: .utf8),
+              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              HelperProcessInspector.matches(pid: pid, executableURL: executableURL) else {
+            return nil
+        }
+        return pid
+    }
+
+    private func refreshHelperState() {
+        helperRunning = controlledHelperPID() != nil
+        refreshHelperStatus()
+        if helperEnabled && !helperRunning && !helperTransitioning && helperStatusMessage == nil {
+            helperStatusMessage = "按键拦截未运行，请重试"
+        }
+    }
+
+    private func refreshHelperStatus() {
+        guard let data = try? Data(contentsOf: Self.helperStatusURL),
+              let record = try? JSONDecoder().decode(HelperStatusRecord.self, from: data),
+              lastHelperStatusDate == nil || record.timestamp > lastHelperStatusDate! else { return }
+        lastHelperStatusDate = record.timestamp
+        if record.kind == .actionError {
+            bindingStatusMessage = record.message
+        }
+    }
+
+    private func setHelperEnabled(_ on: Bool) -> Bool {
         var cfg = loadConfig()
         cfg.helperEnabled = on
-        saveConfig(cfg)
+        guard saveConfig(cfg) else { return false }
         helperEnabled = on
+        return true
+    }
+
+    private func restoreHelperIfNeeded() {
+        refreshHelperState()
+        if !helperRunning, let message = unmanagedHelperMessage() {
+            helperStatusMessage = message
+            return
+        }
+        guard helperEnabled && !helperRunning else { return }
+        startHelper(persistPreference: false)
     }
 
     func toggleHelper() {
-        if isHelperRunning() {
-            _ = run("/usr/bin/pkill", ["-f", "mage-helper"])
-            helperRunning = false
-            setHelperEnabled(false)
-            return
-        }
-        // 通过系统授权对话框获取 root 启动守护进程。
-        // 注意：不要用 nohup —— macOS nohup 在提权 shell（无控制终端）下会
-        // 报 "can't detach from console" 并直接退出，守护进程根本没起来，
-        // 但 osascript 因后台执行照样返回 0（假阳性）。
-        let script = "'\(helperPath)' >/tmp/mage-helper.log 2>&1 &"
-        let r = run("/usr/bin/osascript",
-                    ["-e", "do shell script \"\(script)\" with administrator privileges"])
-        if r != 0 { statusMessage = "未授权，按键拦截未开启"; return }
-        // 1 秒后核实进程真的存活
-        DispatchQueue.global().asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            guard let self else { return }
-            let ok = self.isHelperRunning()
-            let log = ((try? String(contentsOfFile: "/tmp/mage-helper.log", encoding: .utf8)) ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            Task { @MainActor in
-                self.helperRunning = ok
-                if ok {
-                    self.setHelperEnabled(true)
-                } else {
-                    self.statusMessage = log.isEmpty
-                        ? "守护进程启动失败（进程未存活）"
-                        : "守护进程启动失败：\(String(log.prefix(100)))"
-                }
-            }
+        guard !helperTransitioning else { return }
+        refreshHelperState()
+        if helperRunning {
+            stopHelper(persistPreference: true)
+        } else {
+            startHelper(persistPreference: true)
         }
     }
 
-    @discardableResult
-    private func run(_ path: String, _ args: [String]) -> Int32 {
-        let t = Process(); t.executableURL = URL(fileURLWithPath: path); t.arguments = args
-        try? t.run(); t.waitUntilExit()
-        return t.terminationStatus
+    private func startHelper(persistPreference: Bool) {
+        guard let executableURL = helperURL, let options = helperOptions else {
+            helperStatusMessage = "按键拦截启动失败：无法解析 helper 路径"
+            return
+        }
+        guard FileManager.default.fileExists(atPath: executableURL.path),
+              FileManager.default.isExecutableFile(atPath: executableURL.path) else {
+            helperStatusMessage = "按键拦截启动失败：缺少可执行文件 Contents/MacOS/mage-helper"
+            return
+        }
+
+        if let message = unmanagedHelperMessage() {
+            helperStatusMessage = message
+            return
+        }
+
+        helperTransitioning = true
+        helperStatusMessage = "正在启动按键拦截…"
+        bindingStatusMessage = nil
+        do {
+            try FileManager.default.createDirectory(
+                at: Self.runtimeDirectoryURL,
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.createDirectory(
+                at: Self.helperLogURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            if !FileManager.default.fileExists(atPath: Self.helperLogURL.path) {
+                FileManager.default.createFile(atPath: Self.helperLogURL.path, contents: nil)
+            }
+            let logHandle = try FileHandle(forWritingTo: Self.helperLogURL)
+            try logHandle.seekToEnd()
+
+            let process = Process()
+            process.executableURL = executableURL
+            process.arguments = options.processArguments
+            process.standardOutput = logHandle
+            process.standardError = logHandle
+            process.terminationHandler = { [weak self, weak process] terminated in
+                guard let process else { return }
+                Task { @MainActor in
+                    guard let self, self.helperProcess === process else { return }
+                    let requested = self.helperStopRequested
+                    self.helperProcess = nil
+                    try? self.helperLogHandle?.close()
+                    self.helperLogHandle = nil
+                    self.helperRunning = false
+                    self.refreshHelperStatus()
+                    // stopHelper owns requested transitions until PID/path verification confirms exit.
+                    if !requested {
+                        self.helperTransitioning = false
+                        self.helperStopRequested = false
+                        self.helperStatusMessage = "按键拦截异常退出（状态 \(terminated.terminationStatus)）"
+                    }
+                }
+            }
+            helperProcess = process
+            helperLogHandle = logHandle
+            helperStopRequested = false
+            try process.run()
+
+            Task { @MainActor [weak self, weak process] in
+                try? await Task.sleep(for: .milliseconds(350))
+                guard let self, let process, self.helperProcess === process else { return }
+                guard process.isRunning,
+                      HelperProcessInspector.matches(
+                          pid: process.processIdentifier,
+                          executableURL: executableURL
+                      ) else {
+                    self.refreshHelperStatus()
+                    if self.helperStatusMessage?.hasPrefix("按键拦截异常退出") != true {
+                        self.helperStatusMessage = "按键拦截启动失败：进程未保持运行"
+                    }
+                    self.helperTransitioning = false
+                    return
+                }
+                if persistPreference && !self.setHelperEnabled(true) {
+                    self.helperStatusMessage = self.bindingStatusMessage ?? "配置未保存，按键拦截已停止"
+                    self.stopHelper(persistPreference: false)
+                    return
+                }
+                self.helperRunning = true
+                self.helperTransitioning = false
+                self.helperStatusMessage = nil
+                fileLog("按键拦截已启动 PID=\(process.processIdentifier)，用户 UID=\(getuid())")
+            }
+        } catch {
+            helperProcess = nil
+            try? helperLogHandle?.close()
+            helperLogHandle = nil
+            helperTransitioning = false
+            helperStatusMessage = "按键拦截启动失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func unmanagedHelperMessage() -> String? {
+        let controlledPID = controlledHelperPID()
+        let conflicts = HelperProcessInspector.identities(named: "mage-helper")
+            .filter { $0.pid != controlledPID }
+        if let conflict = conflicts.first(where: { $0.uid == 0 }) {
+            return "检测到旧版管理员 helper（PID \(conflict.pid)）；请运行 sudo kill \(conflict.pid) 后重试"
+        }
+        if let conflict = conflicts.first {
+            return "检测到未受控 helper（PID \(conflict.pid)）；请先退出旧版应用后重试"
+        }
+        return nil
+    }
+
+    private func stopHelper(persistPreference: Bool) {
+        guard let executableURL = helperURL, let pid = controlledHelperPID() else {
+            helperRunning = false
+            helperTransitioning = false
+            if persistPreference { _ = setHelperEnabled(false) }
+            helperStatusMessage = nil
+            return
+        }
+        guard HelperProcessInspector.matches(pid: pid, executableURL: executableURL) else {
+            helperStatusMessage = "拒绝停止：helper 进程身份已变化"
+            return
+        }
+
+        helperTransitioning = true
+        helperStopRequested = true
+        helperStatusMessage = "正在停止按键拦截…"
+        guard kill(pid, SIGTERM) == 0 else {
+            helperTransitioning = false
+            helperStopRequested = false
+            helperStatusMessage = "按键拦截停止失败：\(String(cString: strerror(errno)))"
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for _ in 0..<20 {
+                try? await Task.sleep(for: .milliseconds(100))
+                if !HelperProcessInspector.matches(pid: pid, executableURL: executableURL) { break }
+            }
+            guard !HelperProcessInspector.matches(pid: pid, executableURL: executableURL) else {
+                self.helperTransitioning = false
+                self.helperStopRequested = false
+                self.helperStatusMessage = "按键拦截停止失败：进程未退出"
+                return
+            }
+            self.helperRunning = false
+            self.helperTransitioning = false
+            self.helperStopRequested = false
+            if persistPreference && !self.setHelperEnabled(false) {
+                self.helperStatusMessage = self.bindingStatusMessage ?? "配置未保存"
+            } else {
+                self.helperStatusMessage = nil
+            }
+            fileLog("按键拦截已停止 PID=\(pid)")
+        }
+    }
+
+    func stopHelperForAppTermination() {
+        guard let executableURL = helperURL, let pid = controlledHelperPID(),
+              HelperProcessInspector.matches(pid: pid, executableURL: executableURL) else { return }
+        helperStopRequested = true
+        _ = kill(pid, SIGTERM)
+        for _ in 0..<20 {
+            if !HelperProcessInspector.matches(pid: pid, executableURL: executableURL) { break }
+            usleep(50_000)
+        }
     }
 }
 
@@ -467,6 +716,8 @@ final class KeyRecorder: ObservableObject {
         18: "1", 19: "2", 20: "3", 21: "4", 23: "5", 22: "6",
         26: "7", 28: "8", 25: "9", 29: "0",
         36: "return", 49: "space", 48: "tab", 53: "escape", 51: "backspace",
+        27: "-", 24: "=", 33: "[", 30: "]", 42: "\\", 41: ";", 39: "'",
+        50: "`", 43: ",", 47: ".", 44: "/", 117: "forwarddelete",
         123: "left", 124: "right", 126: "up", 125: "down",
         122: "f1", 120: "f2", 99: "f3", 118: "f4", 96: "f5", 97: "f6",
         98: "f7", 100: "f8", 101: "f9", 109: "f10", 103: "f11", 111: "f12",
@@ -605,6 +856,10 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
                 self?.togglePanel()
             }
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        ControllerVM.shared.stopHelperForAppTermination()
     }
 
     private static func icon(connected: Bool) -> NSImage? {
