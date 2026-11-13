@@ -113,6 +113,7 @@ struct MainWindowView: View {
             }
         }
         .frame(width: 800, height: 640)
+        .ignoresSafeArea()
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .background(WindowConfigurator())
         .onAppear { config = vm.loadConfig() }

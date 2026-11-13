@@ -803,24 +803,6 @@ final class KeyRecorder: ObservableObject {
 }
 
 
-// MARK: - 顶部拖动宿主（标题栏配件）
-
-/// 透明视图，按住即 performDrag 拖动窗口；红绿灯区域放行给系统按钮。
-final class TopDragHost: NSView {
-    override var isOpaque: Bool { false }
-    override func draw(_ dirtyRect: NSRect) {}
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        let traffic = NSRect(x: 8, y: -6, width: 96, height: bounds.height + 6)
-        if traffic.contains(point) { return nil }  // 红绿灯交给系统按钮
-        return super.hitTest(point)
-    }
-    override func mouseDown(with event: NSEvent) {
-        beginManualDrag(with: event)
-    }
-    override var acceptsFirstResponder: Bool { false }
-}
-
 // MARK: - 菜单栏状态项 + 弹出面板 + 主窗口（AppKit 实现，完全掌控尺寸与行为）
 //
 // 弃用 SwiftUI MenuBarExtra(.window)：其面板由系统托管，内容固定尺寸会塌缩成 66×20。
@@ -938,28 +920,30 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
 
     @objc private func openMainWindow() {
         if mainWC == nil {
-            let host = NSHostingController(rootView: MainWindowView().environmentObject(ControllerVM.shared))
-            let win = NSWindow(contentViewController: host)
+            let windowSize = NSSize(width: 800, height: 640)
+            let host = NSHostingView(rootView: MainWindowView().environmentObject(ControllerVM.shared))
+            host.sizingOptions = []
+            host.safeAreaRegions = []
+            host.frame = NSRect(origin: .zero, size: windowSize)
+
+            let win = NSWindow(
+                contentRect: NSRect(origin: .zero, size: windowSize),
+                styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            win.contentView = host
             win.title = "MAGE Controller"
-            win.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
             win.titleVisibility = .hidden
             win.titlebarAppearsTransparent = true
             win.isOpaque = false
             win.backgroundColor = .clear
             win.isMovableByWindowBackground = true
             win.standardWindowButton(.zoomButton)?.isEnabled = false
-            win.contentMinSize = NSSize(width: 800, height: 640)
-            win.contentMaxSize = NSSize(width: 800, height: 640)
+            win.minSize = windowSize
+            win.maxSize = windowSize
+            win.setFrame(NSRect(origin: win.frame.origin, size: windowSize), display: false)
             win.center()
-
-            // 顶部可拖区：透明配件视图覆盖标题栏一带，按住即可拖动窗口。
-            // SwiftUI 内容会拦截 mouseDown（isMovableByWindowBackground 失效），
-            // 所以由 AppKit 视图显式 performDrag。
-            let accessory = NSTitlebarAccessoryViewController()
-            let dragHost = TopDragHost(frame: NSRect(x: 0, y: 0, width: 800, height: 28))
-            accessory.view = dragHost
-            accessory.layoutAttribute = .bottom
-            win.addTitlebarAccessoryViewController(accessory)
 
             mainWC = NSWindowController(window: win)
         }
