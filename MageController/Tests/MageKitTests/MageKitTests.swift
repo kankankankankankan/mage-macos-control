@@ -1,5 +1,6 @@
 import XCTest
 import IOKit.hid
+import CoreGraphics
 @testable import MageKit
 
 final class MageKitTests: XCTestCase {
@@ -72,6 +73,64 @@ final class MageKitTests: XCTestCase {
         XCTAssertThrowsError(try KeystrokeSimulator.validate(key: "not-a-key", modifiers: []))
         XCTAssertThrowsError(try KeystrokeSimulator.validate(key: "a", modifiers: ["hyper"]))
         XCTAssertFalse(KeystrokeSimulator.isSupported(key: "not-a-key", modifiers: []))
+    }
+
+    func testForwardDeleteAndModifierAliasesProduceVirtualKeyboardReport() {
+        var reports = [[UInt8]]()
+        let keyboard = VirtualKeyboard { report in
+            reports.append(report)
+            return kIOReturnSuccess
+        }
+
+        let result = KeystrokeSimulator.postUsingVirtualKeyboard(
+            key: "forwarddelete", modifiers: ["lcmd", "rshift"],
+            keyboard: keyboard, holdMicros: 0
+        )
+
+        guard case .success = result else {
+            return XCTFail("expected successful report delivery, got \(result)")
+        }
+        XCTAssertEqual(reports.count, 2)
+        XCTAssertEqual(reports[0][0], 0x08 | 0x20)
+        XCTAssertEqual(reports[0][2], 0x4C)
+        XCTAssertEqual(reports[1], [UInt8](repeating: 0, count: 8))
+    }
+
+    func testModifierAliasesSurviveLegacyFallback() {
+        let flags = KeystrokeSimulator.legacyFlags(
+            for: ["lcmd", "lctl", "lshift", "lopt", "rcmd", "rctl", "rshift", "ropt"]
+        )
+        XCTAssertTrue(flags.contains(.maskCommand))
+        XCTAssertTrue(flags.contains(.maskControl))
+        XCTAssertTrue(flags.contains(.maskShift))
+        XCTAssertTrue(flags.contains(.maskAlternate))
+    }
+
+    func testVirtualKeyboardReportFailurePropagates() {
+        let pressFailureKeyboard = VirtualKeyboard { _ in kIOReturnError }
+
+        let pressResult = KeystrokeSimulator.postUsingVirtualKeyboard(
+            key: "a", modifiers: ["command"], keyboard: pressFailureKeyboard, holdMicros: 0
+        )
+
+        guard case .failure(.eventDeliveryFailed(let pressReason)) = pressResult else {
+            return XCTFail("expected press delivery failure, got \(pressResult)")
+        }
+        XCTAssertFalse(pressReason.isEmpty)
+
+        var reportCount = 0
+        let releaseFailureKeyboard = VirtualKeyboard { _ in
+            reportCount += 1
+            return reportCount == 1 ? kIOReturnSuccess : kIOReturnError
+        }
+        let releaseResult = KeystrokeSimulator.postUsingVirtualKeyboard(
+            key: "a", modifiers: ["command"], keyboard: releaseFailureKeyboard, holdMicros: 0
+        )
+        guard case .failure(.eventDeliveryFailed(let releaseReason)) = releaseResult else {
+            return XCTFail("expected release delivery failure, got \(releaseResult)")
+        }
+        XCTAssertFalse(releaseReason.isEmpty)
+        XCTAssertEqual(reportCount, 2)
     }
 
     func testHIDMatchingIsLimitedToPhysicalMageAndExcludesVirtualKeyboard() {

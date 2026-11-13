@@ -10,8 +10,18 @@ import Foundation
 import IOKit.hid
 
 public final class VirtualKeyboard {
-    public enum VKError: Swift.Error {
-        case apiUnavailable, createFailed, notRunning
+    public enum VKError: Swift.Error, Equatable, LocalizedError {
+        case apiUnavailable, createFailed, notRunning, reportFailed(IOReturn)
+
+        public var errorDescription: String? {
+            switch self {
+            case .apiUnavailable: return "虚拟键盘 API 不可用"
+            case .createFailed: return "无法创建虚拟键盘"
+            case .notRunning: return "虚拟键盘未运行"
+            case .reportFailed(let code):
+                return "虚拟键盘报告发送失败：0x\(String(UInt32(bitPattern: code), radix: 16))"
+            }
+        }
     }
 
     private typealias CreateFn = @convention(c) (CFAllocator?, CFDictionary, IOOptionBits)
@@ -21,7 +31,7 @@ public final class VirtualKeyboard {
 
     private var device: UnsafeMutableRawPointer?
     private let createFn: CreateFn?
-    private let reportFn: ReportFn?
+    private let reportHandler: ((UnsafeMutableRawPointer, [UInt8]) -> IOReturn)?
 
     // 启动键盘协议描述符（8 字节报告）：
     // [0] 修饰键字节（左Ctrl/左Shift/左Opt/左Cmd/右Ctrl/右Shift/右Opt/右Cmd 各占 1 bit）
@@ -57,11 +67,23 @@ public final class VirtualKeyboard {
         guard let handle,
               let createSym = dlsym(handle, "IOHIDUserDeviceCreate"),
               let reportSym = dlsym(handle, "IOHIDUserDeviceHandleReport") else {
-            createFn = nil; reportFn = nil
+            createFn = nil; reportHandler = nil
             return
         }
         createFn = unsafeBitCast(createSym, to: CreateFn.self)
-        reportFn = unsafeBitCast(reportSym, to: ReportFn.self)
+        let reportFn = unsafeBitCast(reportSym, to: ReportFn.self)
+        reportHandler = { device, report in
+            report.withUnsafeBytes { ptr -> IOReturn in
+                guard let base = ptr.baseAddress else { return kIOReturnError }
+                return reportFn(device, base.assumingMemoryBound(to: UInt8.self), report.count)
+            }
+        }
+    }
+
+    init(testReportHandler: @escaping ([UInt8]) -> IOReturn) {
+        createFn = nil
+        reportHandler = { _, report in testReportHandler(report) }
+        device = UnsafeMutableRawPointer(bitPattern: 1)
     }
 
     public var isRunning: Bool { device != nil }
@@ -96,26 +118,24 @@ public final class VirtualKeyboard {
     }
 
     private func sendReport(modifiers: UInt8, key: UInt8) throws {
-        guard let dev = device, let reportFn else { throw VKError.notRunning }
+        guard let dev = device, let reportHandler else { throw VKError.notRunning }
         let report: [UInt8] = [modifiers, 0, key, 0, 0, 0, 0, 0]
-        let r = report.withUnsafeBytes { ptr -> IOReturn in
-            guard let base = ptr.baseAddress else { return kIOReturnError }
-            return reportFn(dev, base.assumingMemoryBound(to: UInt8.self), report.count)
-        }
-        guard r == kIOReturnSuccess else { throw VKError.createFailed }
+        let result = reportHandler(dev, report)
+        guard result == kIOReturnSuccess else { throw VKError.reportFailed(result) }
     }
 
     /// 按一下普通键（usage 见 HID 键盘 usage 表，如 0x2C=空格、0x68=F13）
-    public func tap(key usage: UInt8, modifiers: UInt8 = 0, holdMicros: useconds_t = 20000) {
-        try? sendReport(modifiers: modifiers, key: usage)
+    public func tap(key usage: UInt8, modifiers: UInt8 = 0,
+                    holdMicros: useconds_t = 20000) throws {
+        try sendReport(modifiers: modifiers, key: usage)
         usleep(holdMicros)
-        try? sendReport(modifiers: 0, key: 0)
+        try sendReport(modifiers: 0, key: 0)
     }
 
     /// 只按修饰键（如左⌥+左⌘+左⌃ = 0x04|0x08|0x01）
-    public func tap(modifiers: UInt8, holdMicros: useconds_t = 60000) {
-        try? sendReport(modifiers: modifiers, key: 0)
+    public func tap(modifiers: UInt8, holdMicros: useconds_t = 60000) throws {
+        try sendReport(modifiers: modifiers, key: 0)
         usleep(holdMicros)
-        try? sendReport(modifiers: 0, key: 0)
+        try sendReport(modifiers: 0, key: 0)
     }
 }

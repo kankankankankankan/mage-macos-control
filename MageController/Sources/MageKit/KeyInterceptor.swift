@@ -275,6 +275,7 @@ public enum KeystrokeSimulator {
         case unsupportedKey(String)
         case unsupportedModifier(String)
         case eventCreationFailed
+        case eventDeliveryFailed(String)
 
         public var errorDescription: String? {
             switch self {
@@ -282,6 +283,7 @@ public enum KeystrokeSimulator {
             case .unsupportedKey(let key): return "不支持回放的按键：\(key)"
             case .unsupportedModifier(let modifier): return "不支持回放的修饰键：\(modifier)"
             case .eventCreationFailed: return "无法创建键盘事件"
+            case .eventDeliveryFailed(let reason): return "键盘事件发送失败：\(reason)"
             }
         }
     }
@@ -311,7 +313,8 @@ public enum KeystrokeSimulator {
         "left": 0x50, "right": 0x4F, "up": 0x52, "down": 0x51,
         "printscreen": 0x46, "print_screen": 0x46, "scrolllock": 0x47,
         "scroll_lock": 0x47, "pause": 0x48, "insert": 0x49, "home": 0x4A,
-        "pageup": 0x4B, "page_up": 0x4B, "delete": 0x4C, "end": 0x4D,
+        "pageup": 0x4B, "page_up": 0x4B, "delete": 0x4C, "forwarddelete": 0x4C,
+        "end": 0x4D,
         "pagedown": 0x4E, "page_down": 0x4E,
         "f1": 0x3A, "f2": 0x3B, "f3": 0x3C, "f4": 0x3D, "f5": 0x3E, "f6": 0x3F,
         "f7": 0x40, "f8": 0x41, "f9": 0x42, "f10": 0x43, "f11": 0x44, "f12": 0x45,
@@ -332,10 +335,9 @@ public enum KeystrokeSimulator {
         "right_command": 0x80, "rcmd": 0x80,
     ]
     private static let supportedModifiers = Set([
-        "control", "left_control", "lctl", "shift", "left_shift", "lshift",
-        "option", "left_option", "lopt", "command", "left_command", "lcmd",
-        "right_control", "rctl", "right_shift", "rshift", "right_option", "ropt",
-        "right_command", "rcmd", "fn",
+        "control", "left_control", "shift", "left_shift", "option", "left_option",
+        "command", "left_command", "right_control", "right_shift", "right_option",
+        "right_command", "fn",
     ])
 
     private static let legacyKeyMap: [String: CGKeyCode] = [
@@ -367,7 +369,7 @@ public enum KeystrokeSimulator {
             throw PlaybackError.unsupportedKey(k)
         }
         for modifier in modifiers {
-            let normalized = modifier.trimmingCharacters(in: .whitespaces).lowercased()
+            let normalized = normalizeModifier(modifier)
             guard supportedModifiers.contains(normalized) else {
                 throw PlaybackError.unsupportedModifier(normalized)
             }
@@ -390,12 +392,7 @@ public enum KeystrokeSimulator {
         }
 
         let k = key.trimmingCharacters(in: .whitespaces).lowercased()
-        let normalizedModifiers = modifiers.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
-        var mods: UInt8 = 0
-        for m in normalizedModifiers {
-            if let b = modBits[m] { mods |= b }
-        }
-        let usage = k.isEmpty ? UInt8(0) : (keyUsage[k] ?? 0)
+        let normalizedModifiers = modifiers.map(normalizeModifier)
 
         // Fn has no USB modifier bit; preserve it through the CGEvent route.
         if normalizedModifiers.contains("fn") {
@@ -405,17 +402,59 @@ public enum KeystrokeSimulator {
         vkLock.lock()
         if !vkReady { vkReady = ((try? vk.start()) != nil) }
         let ready = vkReady
-        vkLock.unlock()
-
         if ready {
-            if k.isEmpty {
-                vk.tap(modifiers: mods)
+            let result = postUsingVirtualKeyboard(
+                key: k, modifiers: normalizedModifiers, keyboard: vk
+            )
+            if case .failure = result {
+                vk.stop()
+                vkReady = false
+            }
+            vkLock.unlock()
+            return result
+        }
+        vkLock.unlock()
+        return legacyPost(key: k, modifiers: normalizedModifiers)
+    }
+
+    static func postUsingVirtualKeyboard(key: String, modifiers: [String],
+                                         keyboard: VirtualKeyboard,
+                                         holdMicros: useconds_t = 20000)
+        -> Result<Void, PlaybackError> {
+        do {
+            let normalizedKey = key.trimmingCharacters(in: .whitespaces).lowercased()
+            try validate(key: normalizedKey, modifiers: modifiers)
+            let normalizedModifiers = modifiers.map(normalizeModifier)
+            let modifierBits = normalizedModifiers.reduce(UInt8(0)) {
+                $0 | (modBits[$1] ?? 0)
+            }
+            if normalizedKey.isEmpty {
+                try keyboard.tap(modifiers: modifierBits, holdMicros: holdMicros)
+            } else if let usage = keyUsage[normalizedKey] {
+                try keyboard.tap(key: usage, modifiers: modifierBits, holdMicros: holdMicros)
             } else {
-                vk.tap(key: usage, modifiers: mods)
+                return .failure(.unsupportedKey(normalizedKey))
             }
             return .success(())
-        } else {
-            return legacyPost(key: k, modifiers: normalizedModifiers)
+        } catch let error as PlaybackError {
+            return .failure(error)
+        } catch {
+            return .failure(.eventDeliveryFailed(error.localizedDescription))
+        }
+    }
+
+    static func normalizeModifier(_ modifier: String) -> String {
+        let normalized = modifier.trimmingCharacters(in: .whitespaces).lowercased()
+        switch normalized {
+        case "lctl": return "left_control"
+        case "lshift": return "left_shift"
+        case "lopt": return "left_option"
+        case "lcmd": return "left_command"
+        case "rctl": return "right_control"
+        case "rshift": return "right_shift"
+        case "ropt": return "right_option"
+        case "rcmd": return "right_command"
+        default: return normalized
         }
     }
 
@@ -429,11 +468,14 @@ public enum KeystrokeSimulator {
         "right_option": .maskAlternate, "right_control": .maskControl,
     ]
 
-    private static func legacyPost(key: String, modifiers: [String]) -> Result<Void, PlaybackError> {
-        var flags: CGEventFlags = []
-        for m in modifiers {
-            if let f = legacyModMap[m.trimmingCharacters(in: .whitespaces).lowercased()] { flags.insert(f) }
+    static func legacyFlags(for modifiers: [String]) -> CGEventFlags {
+        modifiers.reduce(into: CGEventFlags()) { flags, modifier in
+            if let flag = legacyModMap[normalizeModifier(modifier)] { flags.insert(flag) }
         }
+    }
+
+    private static func legacyPost(key: String, modifiers: [String]) -> Result<Void, PlaybackError> {
+        let flags = legacyFlags(for: modifiers)
         if key.isEmpty {
             // 纯修饰键：flagsChanged
             guard let down = CGEvent(source: nil), let up = CGEvent(source: nil) else {
