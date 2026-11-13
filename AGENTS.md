@@ -1,6 +1,6 @@
 # MAGE Controller 项目交接文档
 
-> 最后更新：2026-11-13 14:30。本文档面向后续接手的智能体，读完即可继续开发，无需翻历史对话。
+> 最后更新：2026-11-13 15:09。本文档面向后续接手的智能体，读完即可继续开发，无需翻历史对话。
 
 ## 一、项目背景
 
@@ -11,6 +11,14 @@
 3. 界面按 macOS Liquid Glass（液态玻璃）风格：透明窗口透出桌面、无背景色、可拖动。
 
 ## 二、仓库结构与构建
+
+Git 根目录为 `/Users/walkmen/Documents/开发/FIIO/Fiio升级`，远端 `origin` 是
+`https://github.com/kankankankankankan/mage-macos-control.git`。2026-11-13 以本地目录建立
+`main` 基线并按用户要求覆盖远端旧 `main`；基线提交 `56da8fbb5d438a9ad6c6791dc0a5ab581d1b8d1e`。
+远端此前的 `Sources/MageUIApp` 是不同工程结构，后续以本目录源码为准。
+项目资源的本地目录使用 Git worktree 并行；执行前检查 `pwd`、当前分支和变更，
+合并时核对具体提交，不将其他任务的 worktree 变更当成主目录已生效。
+`.build`、`dist` 和 `MageKeys/mage-*` 可执行产物未纳入 Git，构建产物须单独验证。
 
 ```
 /Users/walkmen/Documents/开发/FIIO/Fiio升级/MageController   ← SwiftPM 项目（唯一工程）
