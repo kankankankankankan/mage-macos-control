@@ -25,7 +25,10 @@ final class ControllerVM: ObservableObject {
     static let shared = ControllerVM()
 
     @Published var connected = false {
-        didSet { keyTap.suppressAllMediaKeys = !connected || deviceTransitioning }
+        // 只在模式/7.1 切换过渡期全抑制（设备重枚举时设备键洪水是唯一来源）。
+        // 设备离线时绝不抑制——设备已拔出，没有设备键可拦，全抑制只会误吞
+        // MacBook 自带音量键（用户 2026-11-15 反馈的 bug）。
+        didSet { keyTap.suppressAllMediaKeys = deviceTransitioning }
     }
     @Published var pid: Int = 0
     @Published var ledOn = false
@@ -42,7 +45,7 @@ final class ControllerVM: ObservableObject {
     @Published var bindingStatusMessage: String?
     @Published var statusMessage = "未连接"
     @Published private(set) var deviceTransitioning = false {
-        didSet { keyTap.suppressAllMediaKeys = !connected || deviceTransitioning }
+        didSet { keyTap.suppressAllMediaKeys = deviceTransitioning }
     }
 
     private let channel = VendorChannel()
