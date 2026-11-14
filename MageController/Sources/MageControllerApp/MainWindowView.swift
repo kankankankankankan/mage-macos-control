@@ -505,6 +505,28 @@ struct MainWindowView: View {
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28, alignment: .topLeading)
                 .help(helperStatusText)
+
+            // 作者与项目链接
+            HStack(spacing: 4) {
+                Text("MAGE Controller · 作者")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                Button("kankankankankan") {
+                    NSWorkspace.shared.open(URL(string: "https://github.com/kankankankankankan")!)
+                }
+                .buttonStyle(.link)
+                .font(.system(size: 9))
+                Text("·")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                Button("GitHub 项目") {
+                    NSWorkspace.shared.open(URL(string: "https://github.com/kankankankankankan/mage-macos-control")!)
+                }
+                .buttonStyle(.link)
+                .font(.system(size: 9))
+                Spacer()
+            }
+            .padding(.top, 10)
         }
         .padding(20)
         .liquidGlassCard(cornerRadius: 16)
