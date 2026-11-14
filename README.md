@@ -2,7 +2,7 @@
 
 FiiO / SNOWSKY MAGE HiFi 游戏声卡的 macOS 第三方控制软件。
 
-![设备](mage4.webp)
+![主界面](screenshot.png)
 
 ## 功能
 
