@@ -2,6 +2,8 @@
 
 FiiO / SNOWSKY MAGE HiFi 游戏声卡的 macOS 第三方控制软件。
 
+作者：[kankankankankan](https://github.com/kankankankankan)
+
 ![主界面](screenshot.png)
 
 ## 功能
