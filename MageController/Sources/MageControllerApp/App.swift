@@ -24,11 +24,15 @@ func fileLog(_ message: String) {
 final class ControllerVM: ObservableObject {
     static let shared = ControllerVM()
 
-    @Published var connected = false
+    @Published var connected = false {
+        didSet { keyTap.suppressAllMediaKeys = !connected || deviceTransitioning }
+    }
     @Published var pid: Int = 0
     @Published var ledOn = false
     @Published var micOn = false
     @Published var surround71 = false
+    /// 音效模式：true=游戏（PEQ 预设 ≥256），false=HiFi/BYPASS。与 7.1 相互独立
+    @Published var gameMode = false
     @Published var sampleRate: Double = 0
     @Published var availableRates: [Double] = []
     @Published var helperRunning = false
@@ -37,9 +41,13 @@ final class ControllerVM: ObservableObject {
     @Published var helperStatusMessage: String?
     @Published var bindingStatusMessage: String?
     @Published var statusMessage = "未连接"
-    @Published private(set) var deviceTransitioning = false
+    @Published private(set) var deviceTransitioning = false {
+        didSet { keyTap.suppressAllMediaKeys = !connected || deviceTransitioning }
+    }
 
     private let channel = VendorChannel()
+    /// 免拦截 v2：App 内按键识别 + 系统事件抑制（替代旧 seize + helper 方案）
+    private let keyTap = KeyTapV2()
     private var pollWork: DispatchWorkItem?
     private var helperProcess: Process?
     private var helperLogHandle: FileHandle?
@@ -51,9 +59,13 @@ final class ControllerVM: ObservableObject {
     private let transitionInterlock = DeviceTransitionInterlock()
     private var helperRecoveryGeneration = 0
     private var shortcutRelayObserver: NSObjectProtocol?
+    /// 轮询连续失败次数：设备 HID 偶发抖动（按键爆发时忙）单次失败不打掉已连接态，
+    /// 连续 3 次（约 6 秒）才判定离线——修菜单栏面板「闪断置灰」
+    private var pollFailures = 0
 
+    // v2 免拦截：厂商通道全程在线，按键监听期间设备控制照常可用
     var deviceControlsEnabled: Bool {
-        connected && !deviceTransitioning && !helperTransitioning && !helperRunning
+        connected && !deviceTransitioning && !helperTransitioning
     }
 
     var helperControlEnabled: Bool {
@@ -92,6 +104,20 @@ final class ControllerVM: ObservableObject {
         channel.onPush = { [weak self] cmd, payload in
             guard let self else { return }
             Task { @MainActor in self.handlePush(cmd: cmd, payload: payload) }
+        }
+        // 零流量断线检测：IOHIDDevice 移除通知直接到达，无需轮询心跳，
+        // 指示灯关闭期间可以完全静默（任何 HID 流量都会点亮物理灯数秒）。
+        channel.onDeviceRemoved = { [weak self] in
+            Task { @MainActor in
+                guard let self, !self.deviceTransitioning else { return }
+                if self.connected {
+                    self.connected = false
+                    self.pid = 0
+                    self.statusMessage = "未连接（等待设备）"
+                    fileLog("设备移除（系统通知）")
+                }
+                self.poll()
+            }
         }
         fileLog("App 启动，开始轮询设备")
         if CommandLine.arguments.contains("--open-window") {
@@ -170,6 +196,7 @@ final class ControllerVM: ObservableObject {
         do {
             try validateConfig(cfg)
             try configStore.save(cfg)
+            keyTap.updateConfig(cfg)   // v2：绑定改动即时生效（替代旧 helper 的文件监听热重载）
             bindingStatusMessage = nil
             return true
         } catch {
@@ -248,10 +275,16 @@ final class ControllerVM: ObservableObject {
         try? t.run()
     }
 
-    func poll() {
+    func poll(force: Bool = false) {
         pollWork?.cancel()
         refreshHelperState()
         guard !deviceTransitioning else { return }
+        // 固件实测行为：任何 HID 流量（读/写任意命令）都会让物理指示灯点亮约 5 秒，
+        // 与 cmd6 寄存器无关。官方面板的做法是只有连接/切页时发一帧，之后静默。
+        // 因此指示灯关（寄存器=0）期间完全静默、不排任何轮询；拔线/重插检测
+        // 靠 VendorChannel 的 IOHIDDevice 移除通知（零流量）。用户主动打开界面
+        // （force）时才允许一次查询爆发（与官方面板切页行为一致，代价一次闪灯）。
+        if !ledOn && connected && !force { return }
         let work = DispatchWorkItem { [weak self] in self?.pollOnce() }
         pollWork = work
         DispatchQueue.global().asyncAfter(deadline: .now() + 2.0, execute: work)
@@ -265,14 +298,20 @@ final class ControllerVM: ObservableObject {
             let led = try channel.send(cmd: .ledLight).first ?? 0
             let mic = try channel.send(cmd: .micSwitch).first ?? 0
             let s71 = try channel.send(cmd: .channel71Switch).first ?? 0
+            // 音效模式：读 EQ 预设（240=HiFi/BYPASS；≥256=游戏），回包解析失败不阻断轮询
+            let peq = (try? channel.send(cmd: .peqPre)) ?? []
+            let game = MageProtocol.peqPresetValue(peq)
+                .map { MageProtocol.isGamePreset($0) } ?? self.gameMode
             Task { @MainActor in
                 guard !self.deviceTransitioning else { return }
                 let wasConnected = self.connected
                 self.connected = true
+                self.pollFailures = 0
                 self.pid = self.channel.connectedPID
                 self.ledOn = led == 1
                 self.micOn = mic == 1
                 self.surround71 = s71 == 1
+                self.gameMode = game
                 self.transitionErrorMessage = nil
                 self.statusMessage = String(format: "已连接 PID=0x%04X", self.pid)
                 fileLog("\(self.statusMessage) LED=\(led) MIC=\(mic) 7.1=\(s71)")
@@ -288,6 +327,13 @@ final class ControllerVM: ObservableObject {
         } catch {
             Task { @MainActor in
                 guard !self.deviceTransitioning else { return }
+                self.pollFailures += 1
+                // 首次/偶发失败：保留已连接态，只记日志，2s 后自动重试
+                guard self.pollFailures >= 3 else {
+                    fileLog("轮询抖动(\(self.pollFailures)/3): \(error.localizedDescription)")
+                    self.poll()
+                    return
+                }
                 self.connected = false
                 self.pid = 0
                 self.statusMessage = self.transitionErrorMessage ?? "未连接（等待设备）"
@@ -300,7 +346,12 @@ final class ControllerVM: ObservableObject {
 
     func toggleLED() {
         guard deviceControlsEnabled else { return }
-        runSet(.ledLight, value: ledOn ? 0 : 1, update: { self.ledOn = $0 == 1 })
+        runSet(.ledLight, value: ledOn ? 0 : 1) { [weak self] v in
+            guard let self else { return }
+            self.ledOn = v == 1
+            // 灯开→恢复正常轮询；灯关→poll 自身转入 90s 静默心跳
+            self.poll()
+        }
     }
 
     func toggleMic() {
@@ -377,8 +428,9 @@ final class ControllerVM: ObservableObject {
                         transitionID: transitionID
                     )
                 case .recoveryFailure(let detail):
-                    self.finish71TransitionFailure(
-                        "7.1 未在 20 秒成功判定窗口内恢复：\(detail)。底层通信已安全收尾，请重新插拔 MAGE USB 后再重试",
+                    // 重启兜底：命令可能已执行但设备未恢复，尝试 REBOOT_DEVICE(122) 救活
+                    self.attemptRebootRecovery(
+                        afterFailure: "7.1 未在 20 秒成功判定窗口内恢复：\(detail)。",
                         transitionID: transitionID
                     )
                 }
@@ -401,8 +453,11 @@ final class ControllerVM: ObservableObject {
         ledOn = snapshot.ledOn
         micOn = snapshot.micOn
         surround71 = snapshot.surround71
-        sampleRate = snapshot.sampleRate
-        availableRates = snapshot.availableRates
+        // 音频接口可能尚未重枚举（宽限收尾），保留旧采样率，轮询稍后刷新
+        if snapshot.sampleRate > 0 {
+            sampleRate = snapshot.sampleRate
+            availableRates = snapshot.availableRates
+        }
         statusMessage = String(format: "已连接 PID=0x%04X", snapshot.pid)
         fileLog(String(
             format: "7.1 切换完成 target=%d PID=0x%04X elapsed=%.2fs LED=%d MIC=%d",
@@ -426,6 +481,108 @@ final class ControllerVM: ObservableObject {
         statusMessage = message
         fileLog(message)
         poll()
+    }
+
+    // MARK: - 音效模式切换（HiFi ↔ 游戏，经 EQ 预设 cmd 22）
+
+    /// 切换音效模式。实测（2026-11-14）写 EQ 预设后设备**不重启、不掉线**，
+    /// 写完直接读回验证即可；比 7.1 的 20 秒重连流程轻得多。
+    /// 若固件后续版本出现切换后失联，poll() 的自动重连 + peqPre 读回会自愈状态。
+    func toggleGameMode() {
+        guard deviceControlsEnabled else { return }
+        let targetGame = !gameMode
+        let preset: UInt16 = targetGame
+            ? MageProtocol.peqPresetGame
+            : MageProtocol.peqPresetHifi
+        statusMessage = targetGame ? "正在切换到游戏模式…" : "正在切换到 HiFi 模式…"
+        fileLog("音效模式切换开始 target=\(preset)")
+        let channel = channel
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                _ = try channel.send(cmd: .peqPre,
+                                     payload: MageProtocol.peqPresetBytes(preset),
+                                     set: true)
+                // 读回验证
+                let payload = try channel.send(cmd: .peqPre, timeout: 1.5)
+                let readback = MageProtocol.peqPresetValue(payload)
+                Task { @MainActor in
+                    guard let self else { return }
+                    guard readback == preset else {
+                        self.statusMessage = "模式切换读回不一致（写入 \(preset)，读回 \(readback.map(String.init) ?? "无")），请重试"
+                        fileLog(self.statusMessage)
+                        return
+                    }
+                    self.gameMode = targetGame
+                    self.statusMessage = String(format: "已连接 PID=0x%04X", self.pid)
+                    fileLog("音效模式切换完成 game=\(targetGame)")
+                }
+            } catch {
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.statusMessage = "模式切换失败: \(error)"
+                    fileLog("音效模式切换失败: \(error)")
+                }
+            }
+        }
+    }
+
+    /// 手动重启设备（REBOOT_DEVICE 122）：设备状态异常时的硬复位手段。
+    /// 重启后设备会从总线消失再重枚举，正常轮询会自动重连并读回状态。
+    func rebootDevice() {
+        guard deviceControlsEnabled else { return }
+        statusMessage = "正在重启设备…"
+        fileLog("发送 REBOOT_DEVICE(122)")
+        let channel = channel
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                try channel.send(cmd: .rebootDevice, payload: [], set: true)
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.statusMessage = "设备重启中，等待重连…"
+                    fileLog("REBOOT_DEVICE 已发送，等待设备重枚举")
+                }
+            } catch {
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.statusMessage = "重启命令失败: \(error)"
+                    fileLog("REBOOT_DEVICE 失败: \(error)")
+                }
+            }
+        }
+    }
+
+    /// 切换失败后兜底：等通道恢复可写后发 REBOOT_DEVICE(122)，之后正常轮询自动重连。
+    private func attemptRebootRecovery(afterFailure failedMessage: String, transitionID: UUID) {
+        fileLog("尝试 REBOOT_DEVICE 兜底")
+        let channel = channel
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let deadline = ProcessInfo.processInfo.systemUptime + 15
+            var lastError = ""
+            while ProcessInfo.processInfo.systemUptime < deadline {
+                do {
+                    if try channel.open() {
+                        try channel.send(cmd: .rebootDevice, payload: [], set: true)
+                        fileLog("REBOOT_DEVICE(122) 兜底已发送，等待重枚举")
+                        Task { @MainActor in
+                            self?.finish71TransitionFailure(
+                                failedMessage + "已发送设备重启命令，若 10 秒内仍未恢复请重新插拔 USB",
+                                transitionID: transitionID
+                            )
+                        }
+                        return
+                    }
+                } catch {
+                    lastError = error.localizedDescription
+                }
+                Thread.sleep(forTimeInterval: 1)
+            }
+            Task { @MainActor in
+                self?.finish71TransitionFailure(
+                    failedMessage + "重启兜底未成功（\(lastError)），请重新插拔 MAGE USB",
+                    transitionID: transitionID
+                )
+            }
+        }
     }
 
     func setRate(_ rate: Double) {
@@ -502,7 +659,8 @@ final class ControllerVM: ObservableObject {
     }
 
     private func refreshHelperState() {
-        helperRunning = adoptableHelperPID() != nil
+        // 免拦截 v2：运行状态由 App 内 keyTap 决定；旧 helper 进程不再代表拦截状态
+        if case .running = keyTap.state { helperRunning = true } else { helperRunning = false }
         refreshHelperStatus()
         if helperEnabled && !helperRunning && !helperTransitioning && helperStatusMessage == nil {
             helperStatusMessage = "按键拦截未运行，请重试"
@@ -590,6 +748,51 @@ final class ControllerVM: ObservableObject {
     }
 
     private func startHelper(persistPreference: Bool) {
+        // 免拦截 v2：按键识别 + 系统事件抑制全部在 App 内完成，不再启动 mage-helper。
+        // 先清理可能在跑的旧 helper（seize 会独占设备，与共享监听冲突）。
+        stopLegacyHelpers()
+        // CGEventTap 需要辅助功能权限；未授权时弹系统授权框
+        let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        guard AXIsProcessTrustedWithOptions(opts) else {
+            helperStatusMessage = "需要辅助功能权限：请在 系统设置 → 隐私与安全性 → 辅助功能 中允许 MAGE Controller 后重新开启"
+            finishHelperTransition()
+            return
+        }
+        keyTap.updateConfig(loadConfig())
+        keyTap.onLog = { fileLog("[按键] " + $0) }
+        keyTap.onActionError = { [weak self] message in
+            Task { @MainActor in
+                self?.helperStatusMessage = message
+                fileLog("[按键] " + message)
+            }
+        }
+        guard keyTap.start() else {
+            helperStatusMessage = keyTap.failureReason ?? "按键拦截启动失败"
+            finishHelperTransition()
+            return
+        }
+        if persistPreference && !setHelperEnabled(true) {
+            helperStatusMessage = bindingStatusMessage ?? "配置未保存，按键拦截状态未更新"
+        } else {
+            helperStatusMessage = nil
+        }
+        helperRunning = true
+        finishHelperTransition()
+        fileLog("按键拦截已启动（免拦截 v2，App 内）")
+        return
+    }
+
+    /// 停掉旧版 seize helper（若还在跑），避免独占设备
+    private func stopLegacyHelpers() {
+        guard let executableURL = helperURL else { return }
+        guard let pids = try? HelperProcessInspector.identities(named: "mage-helper") else { return }
+        for identity in pids where HelperProcessInspector.matches(pid: identity.pid, executableURL: executableURL) {
+            kill(identity.pid, SIGTERM)
+            fileLog("已停止旧版 helper PID=\(identity.pid)")
+        }
+    }
+
+    private func startHelperLegacy(persistPreference: Bool) {
         guard let executableURL = helperURL, let options = helperOptions else {
             helperStatusMessage = "按键拦截启动失败：无法解析 helper 路径"
             finishHelperTransition()
@@ -723,6 +926,18 @@ final class ControllerVM: ObservableObject {
     }
 
     private func stopHelper(persistPreference: Bool) {
+        // 免拦截 v2：停 App 内事件监听，同时清理旧 helper
+        keyTap.stop()
+        stopLegacyHelpers()
+        helperRunning = false
+        if persistPreference {
+            applyStopPreference()
+        } else {
+            helperStatusMessage = nil
+        }
+        finishHelperTransition()
+        fileLog("按键拦截已停止（免拦截 v2）")
+        return
         guard let executableURL = helperURL, let pid = controlledHelperPID() else {
             helperRunning = false
             if persistPreference {
@@ -773,6 +988,7 @@ final class ControllerVM: ObservableObject {
     }
 
     func stopHelperForAppTermination() {
+        keyTap.stop()
         guard let executableURL = helperURL, let pid = controlledHelperPID(),
               HelperProcessInspector.matches(pid: pid, executableURL: executableURL) else { return }
         helperStopRequested = true
@@ -806,15 +1022,7 @@ struct MageControllerApp: App {
                 .padding(14)
                 .frame(width: 264)
                 .fixedSize()
-                .background {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(.regularMaterial)
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.primary.opacity(0.15), lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.25), radius: 20, y: 8)
+                .liquidGlassCard(cornerRadius: 14)
                 .padding(8)
         }
         .defaultLaunchBehavior(CommandLine.arguments.contains("--menu-preview") ? .presented : .suppressed)
@@ -847,6 +1055,9 @@ struct MenuContent: View {
                     : (vm.connected ? formatRate(vm.sampleRate) : "未连接"))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    // 防截断：优先级高于 Spacer，宽度不足时压缩标题而非裁掉数值
+                    .layoutPriority(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
             .foregroundStyle(.primary)
 
@@ -858,26 +1069,28 @@ struct MenuContent: View {
                            isOn: vm.ledOn, enabled: vm.deviceControlsEnabled) { vm.toggleLED() }
                 menuToggle("麦克风", icon: "mic.fill",
                            isOn: vm.micOn, enabled: vm.deviceControlsEnabled) { vm.toggleMic() }
+                menuToggle("游戏模式", icon: "gamecontroller.fill",
+                           isOn: vm.gameMode, enabled: vm.deviceControlsEnabled) { vm.toggleGameMode() }
                 menuToggle("7.1 环绕", icon: "speaker.wave.3.fill",
                            isOn: vm.surround71, enabled: vm.deviceControlsEnabled) { vm.toggle71() }
+                menuRow("重启设备", icon: "arrow.triangle.2.circlepath") { vm.rebootDevice() }
             }
 
             Divider().padding(.vertical, 10)
 
-            // 采样率（芯片横排）
+            // 采样率（芯片横排，超宽自动换行；全量来自 CoreAudio 设备上报）
             Text("采样率 · 灯色联动")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 6)
-            HStack(spacing: 6) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 66), spacing: 6)], spacing: 6) {
                 ForEach(menuRates, id: \.self) { rate in
-                    let selected = abs(vm.sampleRate - rate) < 1
+                    let selected = abs(vm.sampleRate - rate) < rate * 0.01
                     Button { vm.setRate(rate) } label: {
                         Text(formatRate(rate))
                             .font(.system(size: 10))
                             .foregroundStyle(.primary.opacity(selected ? 1 : 0.55))
-                            .padding(.horizontal, 10)
-                            .frame(height: 22)
+                            .frame(width: 62, height: 22)
                             .background {
                                 Capsule().fill(Color.primary.opacity(selected ? 0.14 : 0.06))
                             }
@@ -902,11 +1115,12 @@ struct MenuContent: View {
                 }
             }
         }
-        .onAppear { vm.poll() }
+        .onAppear { vm.poll(force: true) }
     }
 
     private var menuRates: [Double] {
-        vm.availableRates.isEmpty ? [48000, 96000, 192000] : Array(vm.availableRates.prefix(3))
+        // 全量展示设备上报的采样率（MAGE 支持 PCM 至 32bit/384kHz），不再截断前 3 个
+        vm.availableRates.isEmpty ? [44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000] : vm.availableRates
     }
 
     /// 开关行：图标 + 名称 + 迷你开关
@@ -972,8 +1186,16 @@ struct MenuContent: View {
         .buttonStyle(.plain)
     }
 
+    /// 采样率显示：吸附到标准档（44.1/48/88.2/96/176.4/192/352.8/384），
+    /// 避免 CoreAudio 实际速率 48094 之类显示成「48.1 kHz」这种怪值；去尾零（48 而非 48.0）
     func formatRate(_ r: Double) -> String {
-        r >= 1000 ? String(format: "%.1f kHz", r / 1000) : String(format: "%.0f Hz", r)
+        let standards: [Double] = [44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000]
+        for s in standards where abs(r - s) / s < 0.01 {
+            let k = s / 1000
+            let num = String(format: "%.1f", k).replacingOccurrences(of: ".0", with: "")
+            return "\(num) kHz"
+        }
+        return r >= 1000 ? String(format: "%.1f kHz", r / 1000) : String(format: "%.0f Hz", r)
     }
 }
 
@@ -1037,21 +1259,30 @@ final class KeyRecorder: ObservableObject {
         recording = false
     }
 
+    /// 修饰键 keyCode → (侧别名称, 对应 flag)。NSEvent.ModifierFlags 不分左右，
+    /// 录制右侧 Command 等必须读 keyCode，否则回放时按左侧发导致目标应用不识别。
+    private static let modsByKeyCode: [UInt16: (name: String, flag: NSEvent.ModifierFlags)] = [
+        55: ("command", .command), 54: ("right_command", .command),
+        58: ("option", .option), 61: ("right_option", .option),
+        56: ("shift", .shift), 60: ("right_shift", .shift),
+        59: ("control", .control), 62: ("right_control", .control),
+        63: ("fn", .function),
+    ]
+
     private func handle(_ ev: NSEvent) {
-        // 修饰键：flagsChanged 事件
+        // 修饰键：flagsChanged 事件（带 keyCode 可区分左右侧）
         if ev.type == .flagsChanged {
+            guard let info = KeyRecorder.modsByKeyCode[ev.keyCode] else { return }
             let f = ev.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            var mods: [String] = []
-            if f.contains(.command) { mods.append("command") }
-            if f.contains(.option) { mods.append("option") }
-            if f.contains(.control) { mods.append("control") }
-            if f.contains(.shift) { mods.append("shift") }
-            // 松开全部修饰键 → 作为纯修饰键组合捕获
-            if mods.isEmpty && sawMod {
-                finish("", lastMods)
-            } else if !mods.isEmpty {
+            if f.contains(info.flag) {
+                if !chord.contains(info.name) { chord.append(info.name); lastMods.append(info.name) }
                 sawMod = true
-                lastMods = mods
+            } else {
+                chord.removeAll { $0 == info.name }
+                // 松开全部修饰键 → 作为纯修饰键组合捕获（lastMods = 按下过的完整组合）
+                if chord.isEmpty && sawMod {
+                    finish("", lastMods)
+                }
             }
             return
         }
@@ -1059,22 +1290,30 @@ final class KeyRecorder: ObservableObject {
         var name = KeyRecorder.names[ev.keyCode] ?? ""
         if name.isEmpty { name = (ev.charactersIgnoringModifiers ?? "").lowercased() }
         guard !name.isEmpty else { return }
-        let f = ev.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // 修饰键必须用 chord 里记录的侧别名（right_command 等）——
+        // modifierFlags 不分左右，直接读会把「右⌘+,」录成通用 command，
+        // 回放按左侧发出导致依赖右⌘的应用不识别。
         var mods: [String] = []
-        if f.contains(.command) { mods.append("command") }
-        if f.contains(.option) { mods.append("option") }
-        if f.contains(.control) { mods.append("control") }
-        if f.contains(.shift) { mods.append("shift") }
+        for side in ["command", "right_command",
+                     "option", "right_option",
+                     "control", "right_control",
+                     "shift", "right_shift",
+                     "fn"] where chord.contains(side) {
+            mods.append(side)
+        }
         finish(name, mods)
     }
 
     private var sawMod = false
     private var lastMods: [String] = []
+    /// 当前仍按住的修饰键（松开即移除）
+    private var chord: [String] = []
 
     private func finish(_ name: String, _ mods: [String]) {
         stop()
         sawMod = false
         lastMods = []
+        chord = []
         capturedMods = mods
         capturedName = name
         fileLog("录制: 捕获 \(name.isEmpty ? "(纯修饰键)" : name) + \(mods.joined(separator: "+"))")
@@ -1132,6 +1371,13 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
         ControllerVM.shared.stopHelperForAppTermination()
     }
 
+    /// 菜单栏常驻 App：SwiftUI App 生命周期默认「最后一个窗口关闭即退出」，
+    /// 面板收起/主窗口关闭都会把整个 App 杀掉（用户报「再点一次图标就退出」）。
+    /// 显式返回 false，退出只走菜单栏「退出 MAGE Controller」。
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
     private static func icon(connected: Bool) -> NSImage? {
         NSImage(systemSymbolName: connected ? "gamecontroller.fill" : "gamecontroller",
                 accessibilityDescription: "MAGE Controller")
@@ -1144,14 +1390,7 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
             .padding(14)
             .frame(width: 264)
             .fixedSize(horizontal: false, vertical: true)
-            .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(.regularMaterial)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color.primary.opacity(0.15), lineWidth: 1)
-            }
+            .liquidGlassCard(cornerRadius: 14)
         let host = NSHostingView(rootView: content)
         host.frame = NSRect(x: 0, y: 0, width: 264, height: 600)
         let fit = host.fittingSize
@@ -1199,6 +1438,9 @@ final class StatusBarController: NSObject, NSApplicationDelegate {
     // MARK: 主窗口
 
     @objc private func openMainWindow() {
+        // 面板是浮动面板，不随主窗口层级；打开主界面前必须确定性收起，
+        // 否则面板会一直压在主界面上方（用户报「选完不消失/时有关时无关」）
+        panel?.orderOut(nil)
         if mainWC == nil {
             let windowSize = NSSize(width: 800, height: 640)
             let host = NSHostingView(rootView: MainWindowView().environmentObject(ControllerVM.shared))

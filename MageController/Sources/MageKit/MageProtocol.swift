@@ -21,7 +21,7 @@ public enum MageProtocol {
         case volOutputSwitch = 8
         case micSwitch = 18
         case peqParams = 21
-        case peqPre = 22
+        case peqPre = 22          // EQ 预设：240=BYPASS(HiFi)，257-260=游戏(FPS/ACT/MOBA/MUG)
         case peqSwitch = 26
         case resetFactory = 33
         case micVol = 34
@@ -33,6 +33,29 @@ public enum MageProtocol {
         case channel71Switch = 56
         case channel71Gain = 58
         case deviceName = 49
+        case firmwareVersion = 11
+        case rebootDevice = 122   // 设备硬重启（模式切换失联兜底）
+    }
+
+    // MARK: - 音效模式（HiFi ↔ 游戏）
+    // 设备无独立模式命令：网页版经 EQ 预设 cmd 22 路由。
+    // 预设表（bundle 实测）：240=BYPASS(通用/HiFi)、257=FPS 258=ACT 259=MOBA 260=MUG(游戏)。
+    public static let peqPresetHifi: UInt16 = 240
+    public static let peqPresetGame: UInt16 = 257
+    /// 预设值 ≥ 256 视为游戏模式（与网页版 category:"game" 值域 257–260 一致）
+    public static func isGamePreset(_ value: UInt16) -> Bool { value >= 256 }
+
+    /// 预设值编码：大端最短字节（240→[F0]，257→[01 01]），与网页版 ms() 一致
+    public static func peqPresetBytes(_ value: UInt16) -> [UInt8] {
+        if value <= 0xFF { return [UInt8(value)] }
+        return [UInt8(value >> 8), UInt8(value & 0xFF)]
+    }
+
+    /// 从回包 payload（1~2 字节，大端）还原预设值
+    public static func peqPresetValue(_ payload: [UInt8]) -> UInt16? {
+        guard let first = payload.first else { return nil }
+        if payload.count >= 2 { return UInt16(payload[0]) << 8 | UInt16(payload[1]) }
+        return UInt16(first)
     }
 
     // 自定义 CRC-8 表（与飞傲网页版一致）

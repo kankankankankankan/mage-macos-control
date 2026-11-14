@@ -218,6 +218,10 @@ public final class VendorChannel: @unchecked Sendable {
         didSet { responseRouter.setPushHandler(onPush) }
     }
 
+    /// 设备被系统移除（拔线/重枚举）时回调；替代轮询做零流量断线检测。
+    /// 回调可能在 IO worker 线程触发，调用方需自行切线程。
+    public var onDeviceRemoved: (() -> Void)?
+
     private var pid = 0
     public var connectedPID: Int {
         lock.lock(); defer { lock.unlock() }
@@ -317,6 +321,18 @@ public final class VendorChannel: @unchecked Sendable {
                 callback,
                 Unmanaged.passUnretained(callbackContext).toOpaque()
             )
+            IOHIDDeviceRegisterRemovalCallback(
+                dev,
+                { context, _, _ in
+                    guard let context else { return }
+                    let removalContext = Unmanaged<VendorCallbackContext>
+                        .fromOpaque(context).takeUnretainedValue()
+                    removalContext.channel.handleDeviceRemoval(
+                        generation: removalContext.generation
+                    )
+                },
+                Unmanaged.passUnretained(callbackContext).toOpaque()
+            )
             let productID = IOHIDDeviceGetProperty(dev, kIOHIDProductIDKey as CFString) as? Int ?? 0
             openResult = .success((dev, productID))
         }
@@ -347,6 +363,17 @@ public final class VendorChannel: @unchecked Sendable {
         responseRouter.route(
             cmd: frame.cmd, payload: frame.payload, generation: generation
         )
+    }
+
+    /// IOHIDDevice 移除通知（拔线/固件重启重枚举）。代次不符说明通道已
+    /// 主动关闭重建（如 7.1 切换的重连流程），通知作废。
+    private func handleDeviceRemoval(generation: UInt64) {
+        lock.lock()
+        let isCurrent = generation == self.generation && device != nil
+        lock.unlock()
+        guard isCurrent else { return }
+        closeSerialized()
+        onDeviceRemoved?()
     }
 
     /// 发送命令并等待匹配的回包（可在任意线程调用）

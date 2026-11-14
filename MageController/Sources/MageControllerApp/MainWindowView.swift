@@ -3,22 +3,73 @@
 import SwiftUI
 import MageKit
 
+// MARK: - 液态玻璃卡片
+// 参照 Kubai087《液态玻璃材质》(x.com/Kubai087/status/2117782193108082923) 的配方：
+//   ① 投影：体积感柔影（.shadow 大尺寸低透明）
+//   ② 模糊与提亮：由 .regularMaterial 承担（系统视觉特效，自动采样背后内容）
+//   ③ 边缘折射：原文用 SVG 位移贴图 + 色散，SwiftUI 无位移滤镜，
+//      以边缘渐变描边近似「边缘一圈更亮、像被压弯」的感觉
+//   ⑤ 边缘光：左上亮 + 右下暗一道，再向内缩进补一道微光
+// （④着色/⑥文字混合模式/⑦自动深浅：系统材质与系统色已自带，不重复实现）
+
+struct LiquidGlassCard: ViewModifier {
+    var cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return content
+            .background {
+                shape
+                    .fill(.regularMaterial)
+                    .shadow(color: .black.opacity(0.28), radius: 26, y: 12)
+            }
+            .overlay {
+                ZStack {
+                    // 主边缘光：左上亮 → 右下暗，模拟玻璃受光
+                    shape.stroke(
+                        LinearGradient(
+                            stops: [
+                                .init(color: .white.opacity(0.55), location: 0.0),
+                                .init(color: .white.opacity(0.08), location: 0.35),
+                                .init(color: .clear, location: 0.55),
+                                .init(color: .black.opacity(0.14), location: 0.8),
+                                .init(color: .black.opacity(0.24), location: 1.0),
+                            ],
+                            startPoint: .topLeading, endPoint: .bottomTrailing),
+                        lineWidth: 1)
+                    // 内缩一道微亮边，增强「厚玻璃」体积感
+                    shape
+                        .stroke(.white.opacity(0.10), lineWidth: 0.5)
+                        .padding(1.5)
+                }
+            }
+    }
+}
+
+extension View {
+    /// 液态玻璃卡片：regularMaterial + 体积投影 + 边缘光（双描边）
+    func liquidGlassCard(cornerRadius: CGFloat) -> some View {
+        modifier(LiquidGlassCard(cornerRadius: cornerRadius))
+    }
+}
+
 // MARK: - 窗口透明配置（配合 hiddenTitleBar 实现悬浮玻璃卡片）
 
 struct WindowConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView { ConfigView() }
     func updateNSView(_ nsView: NSView, context: Context) {}
 
-    /// 窗口背景拖动层：SwiftUI 视图会拦截 mouseDown，导致 isMovableByWindowBackground 失效。
-    /// 放在 ZStack 最底层（内容之下），面板间隙 / 四周留白的点击落到这里 → performDrag 拖动窗口。
+    /// 窗口拖动层：不实现 mouseDown，点击直接交给 NSWindow 的
+    /// isMovableByWindowBackground 原生背景拖动——由 WindowServer 合成器加速
+    /// 移动窗口（官方写法，高刷屏不掉帧）。应用层 performDrag/手动跟环都会顿挫。
+    /// 只铺在顶部标题栏区域（勿全窗口铺——点按留白会误拖窗口）。
     struct DragLayer: NSViewRepresentable {
         func makeNSView(context: Context) -> NSView { DragView() }
         func updateNSView(_ nsView: NSView, context: Context) {}
 
         final class DragView: NSView {
-            override func mouseDown(with event: NSEvent) {
-                beginManualDrag(with: event)
-            }
+            // 窗口非激活时也能直接拖动
+            override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
         }
     }
 
@@ -44,20 +95,50 @@ struct WindowConfigurator: NSViewRepresentable {
     }
 }
 
-// MARK: - 手动窗口拖动（performDrag 对合成事件不生效，改自己跟鼠标移动）
+// MARK: - 窗口拖动（双轨：真实鼠标走 AppKit performDrag，合成事件走手动循环）
 
 extension NSView {
-    /// 按住拖动窗口：进入跟踪循环持续跟随鼠标，真实与合成鼠标事件均有效。
+    /// 按住拖动窗口。
+    /// - 真实用户输入：交给 `window.performDrag(with:)` —— AppKit 原生跟踪循环，
+    ///   无坐标系换算、无漂移，社区标准做法（Quill / Apple 文档 10.11+ 推荐）。
+    /// - 合成事件（Kimi Computer Use 等注入、事件源 PID≠0）：performDrag 不生效，
+    ///   退回手动循环；手动循环内置看门狗：左键未按下即退出、单事件位移 >100px
+    ///   视为注入风暴直接丢弃——根治「松手后窗口还在自己乱飘」。
     func beginManualDrag(with event: NSEvent) {
         guard let window else { return }
-        let startOrigin = window.frame.origin
-        let startMouse = NSEvent.mouseLocation
+
+        // 高刷屏拖动掉帧优化：透明玻璃窗口拖动时每帧重算投影是大头，
+        // 拖动期间临时关阴影、松手恢复（社区通用做法）
+        window.hasShadow = false
+
+        defer { window.hasShadow = true }
+
+        var isSynthesized = false
+        if let cgEvent = event.cgEvent {
+            // 合成事件（CGEventPost 注入）的 source Unix PID ≠ 0；真实硬件输入为 0
+            isSynthesized = cgEvent.getIntegerValueField(.eventSourceUnixProcessID) != 0
+        }
+
+        if !isSynthesized {
+            window.performDrag(with: event)
+            return
+        }
+
+        var last = event.locationInWindow
         while true {
             guard let e = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) else { break }
             if e.type == .leftMouseUp { break }
-            let now = NSEvent.mouseLocation
-            window.setFrameOrigin(NSPoint(x: startOrigin.x + now.x - startMouse.x,
-                                          y: startOrigin.y + now.y - startMouse.y))
+            // 看门狗：按钮已松开（事件流与真实状态失步）立即退出，不再跟
+            guard NSEvent.pressedMouseButtons & 1 != 0 else { break }
+            let p = e.locationInWindow
+            let dx = p.x - last.x, dy = p.y - last.y
+            last = p
+            // 注入风暴 / 异常大位移：丢弃不跟，避免窗口被合成流拖飞
+            guard abs(dx) < 100, abs(dy) < 100 else { continue }
+            var origin = window.frame.origin
+            origin.x += dx
+            origin.y += dy
+            window.setFrameOrigin(origin)
         }
     }
 }
@@ -81,9 +162,6 @@ struct MainWindowView: View {
             // 整块窗口就是一层薄玻璃（透出桌面 = Liquid Glass）
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(.ultraThinMaterial)
-
-            // 背景拖动层：内容缝隙/留白处的点击落到这里拖动窗口
-            WindowConfigurator.DragLayer()
 
             VStack(spacing: 0) {
                 // 标题（红绿灯左侧由系统绘制在玻璃上）；不参与点击，让拖动穿透到底层
@@ -113,6 +191,13 @@ struct MainWindowView: View {
             }
         }
         .frame(width: 800, height: 640)
+        // 仅顶部标题栏区域可拖动窗口：全窗口拖动层会让点按留白/缝隙时误拖（用户报「乱飘」）；
+        // 左侧留出红绿灯区域，避免遮挡关闭按钮
+        .overlay(alignment: .top) {
+            WindowConfigurator.DragLayer()
+                .frame(height: 36)
+                .padding(.leading, 84)
+        }
         .ignoresSafeArea()
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .background(WindowConfigurator())
@@ -156,14 +241,13 @@ struct MainWindowView: View {
 
     private var statusTitle: String {
         if vm.deviceTransitioning { return "MAGE 雪漫天 · 设备重启重连中" }
-        if vm.helperRunning && !vm.connected { return "按键拦截运行中 · 设备控制暂不可用" }
         return vm.connected ? "MAGE 雪漫天 · 已连接" : "未连接 · 等待设备"
     }
 
     private var statusDetail: String {
         if vm.deviceTransitioning { return "请稍候" }
         return vm.connected
-            ? "\(formatRate(vm.sampleRate)) · \(vm.surround71 ? "游戏模式" : "HiFi 模式")"
+            ? "\(formatRate(vm.sampleRate)) · \(vm.gameMode ? "游戏模式" : "HiFi 模式")\(vm.surround71 ? " · 7.1" : "")"
             : "—"
     }
 
@@ -183,29 +267,31 @@ struct MainWindowView: View {
                 .frame(height: 16)
 
             DeviceLineArt(
-                musicOn: vm.ledOn && !vm.surround71,
-                gameOn: vm.ledOn && vm.surround71,
+                musicOn: vm.ledOn && !vm.gameMode,
+                gameOn: vm.ledOn && vm.gameMode,
                 s71On: vm.ledOn && vm.surround71,
-                micOn: vm.ledOn && vm.micOn
+                micOn: vm.ledOn && vm.micOn,
+                rate: vm.sampleRate
             )
             .frame(width: 231, height: 126)
             .frame(maxWidth: .infinity)
             .padding(.top, 12)
 
-            // 灯位图例
+            // 灯位图例（颜色与线稿灯一致：跟随采样率）
+            let lampTint = lampColor(rate: vm.sampleRate)
             HStack(spacing: 14) {
-                legendDot(on: vm.ledOn && !vm.surround71, "音乐")
-                legendDot(on: vm.ledOn && vm.surround71, "游戏")
-                legendDot(on: vm.ledOn && vm.surround71, "7.1")
-                legendDot(on: vm.ledOn && vm.micOn, "麦克风")
+                legendDot(on: vm.ledOn && !vm.gameMode, "音乐", color: lampTint)
+                legendDot(on: vm.ledOn && vm.gameMode, "游戏", color: lampTint)
+                legendDot(on: vm.ledOn && vm.surround71, "7.1", color: lampTint)
+                legendDot(on: vm.ledOn && vm.micOn, "麦克风", color: Color(hex: 0x4FC3F7))
             }
             .frame(maxWidth: .infinity)
             .padding(.top, 8)
 
-            // 模式胶囊（状态展示）
+            // 音效模式胶囊（可点击切换 HiFi ↔ 游戏）
             HStack(spacing: 12) {
-                modePill("HiFi 音乐", active: !vm.surround71)
-                modePill("游戏模式", active: vm.surround71)
+                modePillButton("HiFi 音乐", active: !vm.gameMode) { vm.toggleGameMode() }
+                modePillButton("游戏模式", active: vm.gameMode) { vm.toggleGameMode() }
             }
             .padding(.top, 14)
 
@@ -214,7 +300,7 @@ struct MainWindowView: View {
                 .foregroundStyle(.secondary)
                 .padding(.top, 12)
 
-            HStack(spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), spacing: 8)], spacing: 8) {
                 ForEach(rateChoices, id: \.self) { rate in
                     rateChip(rate)
                 }
@@ -263,19 +349,11 @@ struct MainWindowView: View {
                 .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28, alignment: .topLeading)
         }
         .padding(20)
-        .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.regularMaterial)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(strokeColor(strong: false), lineWidth: 1)
-        }
+        .liquidGlassCard(cornerRadius: 16)
     }
 
     private var deviceControlMessage: String {
         if vm.deviceTransitioning { return vm.statusMessage }
-        if vm.helperRunning && !vm.connected { return "按键拦截期间，设备控制暂不可用" }
         if vm.statusMessage.hasPrefix("命令失败") || vm.statusMessage.hasPrefix("7.1") {
             return vm.statusMessage
         }
@@ -283,19 +361,28 @@ struct MainWindowView: View {
     }
 
     private var rateChoices: [Double] {
-        vm.availableRates.isEmpty ? [48000, 96000, 192000] : Array(vm.availableRates.prefix(3))
+        // 全量展示（MAGE 规格 PCM 32bit/384kHz + DSD256，经 DoP 表现为高 PCM 档）
+        vm.availableRates.isEmpty
+            ? [44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000]
+            : vm.availableRates
     }
 
-    private func legendDot(on: Bool, _ label: String) -> some View {
+    private func legendDot(on: Bool, _ label: String, color: Color = Color(hex: 0x4FC3F7)) -> some View {
         HStack(spacing: 5) {
             Circle()
-                .fill(on ? Color.primary : Color.primary.opacity(0.25))
+                .fill(on ? color : Color.primary.opacity(0.25))
                 .frame(width: 6, height: 6)
-                .shadow(color: on ? Color.primary.opacity(0.4) : .clear, radius: 4)
+                .shadow(color: on ? color.opacity(0.4) : .clear, radius: 4)
             Text(label)
                 .font(.system(size: 9))
                 .foregroundStyle(on ? Color.primary : .secondary)
         }
+    }
+
+    /// 官方说明书灯色：音乐/游戏灯 PCM≤48kHz 浅蓝、PCM>48kHz 黄、DSD 绿
+    /// （DSD 状态 CoreAudio 无法判别，暂按 PCM 档位着色）
+    private func lampColor(rate: Double) -> Color {
+        rate <= 48050 ? Color(hex: 0x4FC3F7) : .yellow
     }
 
     private func modePill(_ title: String, active: Bool) -> some View {
@@ -313,8 +400,19 @@ struct MainWindowView: View {
             }
     }
 
+    /// 可点击的模式胶囊（音效模式切换）
+    private func modePillButton(_ title: String, active: Bool,
+                                action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            modePill(title, active: active)
+        }
+        .buttonStyle(.plain)
+        .disabled(vm.deviceTransitioning)
+        .help("点击切换音效模式")
+    }
+
     private func rateChip(_ rate: Double) -> some View {
-        let selected = abs(vm.sampleRate - rate) < 1
+        let selected = abs(vm.sampleRate - rate) < rate * 0.01
         return Button {
             vm.setRate(rate)
         } label: {
@@ -395,6 +493,12 @@ struct MainWindowView: View {
             .frame(height: 44)
             .disabled(!vm.helperControlEnabled)
 
+            Text("开启后，设备按键不再触发系统默认行为（调音量、切歌），改为你上方自定义的快捷键；关闭则恢复出厂行为。想自定义按键就需要开启。")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+
             Text(helperStatusText)
                 .font(.system(size: 10))
                 .foregroundStyle(helperStatusColor)
@@ -403,14 +507,7 @@ struct MainWindowView: View {
                 .help(helperStatusText)
         }
         .padding(20)
-        .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.regularMaterial)
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(strokeColor(strong: false), lineWidth: 1)
-        }
+        .liquidGlassCard(cornerRadius: 16)
     }
 
     private func shellEditor(_ row: RowID) -> some View {
@@ -595,6 +692,8 @@ struct MainWindowView: View {
 
     private static let modSymbols: [String: String] = [
         "command": "⌘", "option": "⌥", "control": "⌃", "shift": "⇧",
+        "right_command": "右⌘", "right_option": "右⌥",
+        "right_control": "右⌃", "right_shift": "右⇧",
     ]
     private static let keySymbols: [String: String] = [
         "return": "⏎", "space": "空格", "tab": "制表",
@@ -675,122 +774,14 @@ struct RecordingDot: View {
     }
 }
 
-// MARK: - 设备线稿（严格按设计稿 550×300 坐标系，55×30mm 实机比例）
-
-struct DeviceLineArt: View {
-    var musicOn: Bool
-    var gameOn: Bool
-    var s71On: Bool
-    var micOn: Bool
-
-    var body: some View {
-        Canvas { ctx, size in
-            let s = min(size.width / 550, size.height / 300)
-            ctx.scaleBy(x: s, y: s)
-            let line = Color.primary
-
-            // 机身
-            let bodyRect = CGRect(x: 0, y: 0, width: 550, height: 300)
-            ctx.fill(Path(roundedRect: bodyRect, cornerRadius: 35),
-                     with: .color(line.opacity(0.04)))
-            ctx.stroke(Path(roundedRect: bodyRect, cornerRadius: 35),
-                       with: .color(line.opacity(0.8)), lineWidth: 3.57)
-            // 内圈 bezel
-            ctx.stroke(Path(roundedRect: CGRect(x: 15, y: 15, width: 520, height: 270),
-                            cornerRadius: 22),
-                       with: .color(line.opacity(0.3)), lineWidth: 2.38)
-
-            // 十字键（任天堂比例：臂宽 1/3；160 单位路径严格等比缩放到 150）
-            var dpad = Path()
-            dpad.move(to: CGPoint(x: 122, y: 69))
-            dpad.addLine(to: CGPoint(x: 170.8, y: 69))
-            dpad.addLine(to: CGPoint(x: 170.8, y: 119.6))
-            dpad.addLine(to: CGPoint(x: 221.4, y: 119.6))
-            dpad.addLine(to: CGPoint(x: 221.4, y: 168.4))
-            dpad.addLine(to: CGPoint(x: 170.8, y: 168.4))
-            dpad.addLine(to: CGPoint(x: 170.8, y: 219))
-            dpad.addLine(to: CGPoint(x: 122, y: 219))
-            dpad.addLine(to: CGPoint(x: 122, y: 168.4))
-            dpad.addLine(to: CGPoint(x: 71.4, y: 168.4))
-            dpad.addLine(to: CGPoint(x: 71.4, y: 119.6))
-            dpad.addLine(to: CGPoint(x: 122, y: 119.6))
-            dpad.closeSubpath()
-            ctx.fill(dpad, with: .color(line.opacity(0.06)))
-            ctx.stroke(dpad, with: .color(line.opacity(0.8)), lineWidth: 3.57)
-
-            // M 圆键
-            ctx.fill(Path(ellipseIn: CGRect(x: 300, y: 88, width: 66.7, height: 66.7)),
-                     with: .color(line.opacity(0.06)))
-            ctx.stroke(Path(ellipseIn: CGRect(x: 300, y: 88, width: 66.7, height: 66.7)),
-                       with: .color(line.opacity(0.8)), lineWidth: 3.57)
-
-            // 麦克风圆键
-            ctx.fill(Path(ellipseIn: CGRect(x: 409.5, y: 142.9, width: 66.7, height: 66.7)),
-                     with: .color(line.opacity(0.06)))
-            ctx.stroke(Path(ellipseIn: CGRect(x: 409.5, y: 142.9, width: 66.7, height: 66.7)),
-                       with: .color(line.opacity(0.8)), lineWidth: 3.57)
-            // 麦克风图标用系统 SF Symbol 叠加绘制（见 overlay），不在 Canvas 内手绘
-
-            // 灯窗
-            ctx.fill(Path(roundedRect: CGRect(x: 195.2, y: 214.3, width: 150, height: 47.6),
-                            cornerRadius: 14),
-                     with: .color(line.opacity(0.04)))
-            ctx.stroke(Path(roundedRect: CGRect(x: 195.2, y: 214.3, width: 150, height: 47.6),
-                            cornerRadius: 14),
-                       with: .color(line.opacity(0.3)), lineWidth: 2.38)
-
-            // 4 颗 LED：音乐 / 游戏 / 7.1 / 麦克风
-            // 灯窗 x 195.2..345.2，四灯心等距 38.1、两端边距对称 17.9（=7.5px）
-            led(ctx, center: CGPoint(x: 213.1, y: 238.1), d: 21.4, on: musicOn)
-            led(ctx, center: CGPoint(x: 251.2, y: 238.1), d: 16.7, on: gameOn)
-            led(ctx, center: CGPoint(x: 289.3, y: 238.1), d: 16.7, on: s71On)
-            led(ctx, center: CGPoint(x: 327.4, y: 238.1), d: 21.4, on: micOn)
-        }
-        .overlay {
-            // 键位符号（▲▼ 与 M，与机身印刷一致）
-            ZStack {
-                Text("▲").font(.system(size: 7)).foregroundStyle(.primary.opacity(0.8))
-                    .position(x: 61.5, y: 40)
-                Text("▼").font(.system(size: 7)).foregroundStyle(.primary.opacity(0.8))
-                    .position(x: 61.5, y: 81)
-                Text("M").font(.system(size: 10)).foregroundStyle(.primary.opacity(0.8))
-                    .position(x: 140, y: 51)
-                // 系统麦克风图标（与 macOS 菜单栏一致）；位置 = 按钮心 (442.85,176.25) × s(0.42)
-                Image(systemName: "mic.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.primary.opacity(0.85))
-                    .position(x: 186, y: 74)
-            }
-        }
-    }
-
-    private func led(_ ctx: GraphicsContext, center: CGPoint, d: CGFloat, on: Bool) {
-        let tint = Color.primary
-        if on {
-            let halo = Path(ellipseIn: CGRect(x: center.x - d * 1.5, y: center.y - d * 1.5,
-                                              width: d * 3, height: d * 3))
-            ctx.fill(halo, with: .radialGradient(
-                Gradient(colors: [tint.opacity(0.4), .clear]),
-                center: center, startRadius: 0, endRadius: d * 1.5))
-        }
-        ctx.fill(Path(ellipseIn: CGRect(x: center.x - d / 2, y: center.y - d / 2,
-                                        width: d, height: d)),
-                 with: .color(on ? tint : tint.opacity(0.2)))
-    }
-}
-
-// MARK: - 颜色 / 格式化工具
-
-extension Color {
-    init(hex: UInt32) {
-        self.init(.sRGB,
-                  red: Double((hex >> 16) & 0xFF) / 255,
-                  green: Double((hex >> 8) & 0xFF) / 255,
-                  blue: Double(hex & 0xFF) / 255,
-                  opacity: 1)
-    }
-}
 
 private func formatRate(_ r: Double) -> String {
-    r >= 1000 ? String(format: "%.1f kHz", r / 1000) : String(format: "%.0f Hz", r)
+    // 与 MenuContent.formatRate 同逻辑：吸附标准档，避免 48094 →「48.1 kHz」怪值
+    let standards: [Double] = [44100, 48000, 88200, 96000, 176400, 192000, 352800, 384000]
+    for s in standards where abs(r - s) / s < 0.01 {
+        let k = s / 1000
+        let num = String(format: "%.1f", k).replacingOccurrences(of: ".0", with: "")
+        return "\(num) kHz"
+    }
+    return r >= 1000 ? String(format: "%.1f kHz", r / 1000) : String(format: "%.0f Hz", r)
 }

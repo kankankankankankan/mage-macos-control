@@ -156,6 +156,11 @@ public struct DeviceRestartCoordinator {
         }
 
         var lastObservation = "等待 USB/HID 重新枚举"
+        /// HID 恢复且 7.1 状态匹配后，给 USB 音频接口的专用宽限窗口（秒）。
+        /// CoreAudio 重枚举明显慢于 HID（实测 17s+），不应阻塞整体成功判定；
+        /// 宽限只需覆盖常见情况，超宽限按成功收尾（采样率由正常轮询稍后刷新）。
+        let audioGrace: TimeInterval = 1
+        var audioWaitStart: TimeInterval?
         while let delay = deadline.boundedDuration(at: now(), maximum: retryDelay) {
             sleep(delay)
             guard deadline.contains(now()) else { break }
@@ -209,24 +214,33 @@ public struct DeviceRestartCoordinator {
                 let mic = try readBinaryState(
                     .micSwitch, timeout: micTimeout, io: io
                 )
-                guard let audio = io.audioSnapshot() else {
-                    lastObservation = "HID 已恢复，USB 音频输出或输入接口仍未就绪"
+                if let audio = io.audioSnapshot() {
+                    return .success(DeviceRestartSnapshot(
+                        pid: observedPID,
+                        ledOn: led,
+                        micOn: mic,
+                        surround71: surround,
+                        sampleRate: audio.sampleRate,
+                        availableRates: audio.availableRates
+                    ), elapsed: now() - startedAt)
+                }
+                // 音频接口未就绪：给专用宽限，超宽限按成功收尾（音频由系统稍后恢复）
+                if audioWaitStart == nil { audioWaitStart = now() }
+                if now() - audioWaitStart! < audioGrace,
+                   deadline.remaining(at: now()) > retryDelay {
+                    lastObservation = "HID 已恢复，等待 USB 音频接口重枚举…"
                     observe(lastObservation)
                     io.close()
                     continue
                 }
-                guard deadline.contains(now()) else {
-                    io.close()
-                    break
-                }
-
+                observe("USB 音频接口暂未就绪，将由系统稍后自动恢复")
                 return .success(DeviceRestartSnapshot(
                     pid: observedPID,
                     ledOn: led,
                     micOn: mic,
                     surround71: surround,
-                    sampleRate: audio.sampleRate,
-                    availableRates: audio.availableRates
+                    sampleRate: 0,
+                    availableRates: []
                 ), elapsed: now() - startedAt)
             } catch {
                 lastObservation = error.localizedDescription

@@ -81,13 +81,14 @@ public struct KeyConfig: Codable {
     public var micKey: KeyAction
     /// 按麦克风键后自动恢复设备麦克风（抵消固件自带的静音切换，语音输入必开）
     public var micAutoUnmute: Bool
-    /// 按键拦截开关是否处于「用户已开启」状态（持久化；守护进程本身不随 App 重启）
+    /// 按键自定义开关是否处于「用户已开启」状态（持久化；v2 免拦截架构下默认开启，
+    /// 开启即 App 自启按键监听与系统事件抑制，无需用户手动操作）
     public var helperEnabled: Bool
 
     public init(keys: [String: KeyAction] = KeyConfig.defaults,
                 micKey: KeyAction = .keystroke(key: "f13", modifiers: []),
                 micAutoUnmute: Bool = true,
-                helperEnabled: Bool = false) {
+                helperEnabled: Bool = true) {
         self.keys = keys
         self.micKey = micKey
         self.micAutoUnmute = micAutoUnmute
@@ -101,7 +102,7 @@ public struct KeyConfig: Codable {
         self.micKey = try c.decodeIfPresent(KeyAction.self, forKey: .micKey)
             ?? .keystroke(key: "f13", modifiers: [])
         self.micAutoUnmute = try c.decodeIfPresent(Bool.self, forKey: .micAutoUnmute) ?? true
-        self.helperEnabled = try c.decodeIfPresent(Bool.self, forKey: .helperEnabled) ?? false
+        self.helperEnabled = try c.decodeIfPresent(Bool.self, forKey: .helperEnabled) ?? true
     }
 
     public static let defaults: [String: KeyAction] = [
@@ -479,23 +480,47 @@ public enum KeystrokeSimulator {
         }
     }
 
+    /// 修饰键 → 虚拟键码（flagsChanged 事件必须带真实键码，否则依赖 keyCode
+    /// 匹配的热键应用（如 Typeless 的单 ⌥ 触发）收不到）
+    private static let modifierKeyCode: [String: CGKeyCode] = [
+        "control": 59, "left_control": 59, "shift": 56, "left_shift": 56,
+        "option": 58, "left_option": 58, "command": 55, "left_command": 55,
+        "right_control": 62, "right_shift": 60, "right_option": 61, "right_command": 54,
+        "fn": 63,
+    ]
+
     private static func legacyPost(key: String, modifiers: [String]) -> Result<Void, PlaybackError> {
         guard CGPreflightPostEventAccess() else {
             return .failure(.eventAccessDenied)
         }
         let flags = legacyFlags(for: modifiers)
         if key.isEmpty {
-            // 纯修饰键：flagsChanged
-            guard let down = CGEvent(source: nil), let up = CGEvent(source: nil) else {
-                return .failure(.eventCreationFailed)
+            // 纯修饰键（如单 ⌥）：逐键按下再逆序抬起，flags 累积，
+            // 每个 flagsChanged 都带真实 keyCode + 事件源，仿真真实键盘。
+            guard !modifiers.isEmpty else { return .failure(.emptyCombination) }
+            let src = CGEventSource(stateID: .hidSystemState)
+            var cumulative = CGEventFlags()
+            var stack: [(code: CGKeyCode, heldAfterRelease: CGEventFlags)] = []
+            for modifier in modifiers {
+                guard let code = modifierKeyCode[modifier], let bit = legacyModMap[modifier] else {
+                    return .failure(.unsupportedModifier(modifier))
+                }
+                cumulative.insert(bit)
+                guard let down = CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: true) else {
+                    return .failure(.eventCreationFailed)
+                }
+                down.flags = cumulative
+                down.post(tap: .cghidEventTap)
+                stack.append((code, cumulative.subtracting(bit)))
+                usleep(15000)
             }
-            down.type = .flagsChanged
-            down.flags = flags
-            down.post(tap: .cghidEventTap)
-            usleep(60000)
-            up.type = .flagsChanged
-            up.flags = []
-            up.post(tap: .cghidEventTap)
+            usleep(30000)
+            for (code, held) in stack.reversed() {
+                guard let up = CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: false) else { continue }
+                up.flags = held
+                up.post(tap: .cghidEventTap)
+                usleep(15000)
+            }
             return .success(())
         }
         guard let code = legacyKeyMap[key] else { return .failure(.unsupportedKey(key)) }

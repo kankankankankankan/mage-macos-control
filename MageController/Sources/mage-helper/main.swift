@@ -44,7 +44,8 @@ private func runHelper() -> Int32 {
 
     func writeStatus(_ kind: HelperStatusRecord.Kind, _ message: String) {
         do {
-            let record = HelperStatusRecord(kind: kind, message: message)
+            let record = HelperStatusRecord(
+                kind: kind, message: message)
             let data = try JSONEncoder().encode(record)
             try data.write(to: options.statusFileURL, options: .atomic)
         } catch {
@@ -67,7 +68,9 @@ private func runHelper() -> Int32 {
         print(message)
         fflush(stdout)
     }
-    interceptor.onActionError = { message in writeStatus(.actionError, message) }
+    interceptor.onActionError = { message in
+        writeStatus(.actionError, message)
+    }
     interceptor.onKeystrokeRequest = { key, modifiers in
         ShortcutRelay.post(key: key, modifiers: modifiers)
     }
