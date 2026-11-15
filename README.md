@@ -4,7 +4,7 @@ FiiO / SNOWSKY MAGE HiFi 游戏声卡的 macOS 第三方控制软件。
 
 作者：[kankankankankan](https://github.com/kankankankankan)
 
-![主界面](screenshot.png)
+![主界面](docs/images/main-window.png)
 
 ## 功能
 
@@ -54,11 +54,16 @@ bash scripts/build-app.sh       # 产出 dist/MAGE Controller.app
 
 ## 文档
 
-- [CHECKLIST.md](CHECKLIST.md) — 回归测试清单（自动探针 + 人工验证）
-- [AGENTS.md](AGENTS.md) — 开发日志与协议逆向结论（寄存器表、探针写法、已知限制）
-- [MAGE_manual.pdf](MAGE_manual.pdf) — 官方说明书（指示灯颜色表的来源）
+| 文件 | 内容 |
+|------|------|
+| [docs/usage.md](docs/usage.md) | 使用说明（安装、权限、按键映射、常见问题） |
+| [docs/protocol.md](docs/protocol.md) | 协议速查（命令表、按键码、灯色表、固件行为） |
+| [docs/checklist.md](docs/checklist.md) | 回归测试清单（自动探针 + 人工验证） |
+| [docs/dev-log.md](docs/dev-log.md) | 开发日志（协议逆向全过程与每次改动结论） |
+| [docs/reference/MAGE_manual.pdf](docs/reference/MAGE_manual.pdf) | 官方说明书（指示灯颜色表的来源） |
+| `design/` | 设计资产（应用图标、界面稿、产品图） |
 
 ## 协议要点
 
 设备有两个同名 HID 接口：`0x4022` = 厂商控制通道（本软件使用），`0x0144` = 无响应。
-厂商协议为 64 字节报告帧，关键命令见 `AGENTS.md` 末节。
+厂商协议为 64 字节报告帧，命令速查见 [docs/protocol.md](docs/protocol.md)。
